@@ -6,13 +6,16 @@ Stacked PRs for [Jujutsu](https://jj-vcs.github.io/jj/latest/). Push bookmark st
 ## What it does
 
 ```
-trunk()                           PR #1: feat-a → main
-  │                               PR #2: feat-b → feat-a
-  ○ feat-a  ──────────────────►   PR #3: feat-c → feat-b
-  │
-  ○ feat-b
-  │
-  ○ feat-c
+       [feat-c]
+    @  ○○○○ Add logout       ──►   PR #3: feat-c → feat-b
+    │
+       [feat-b]
+    ○  ○○○○ Add sessions     ──►   PR #2: feat-b → feat-a
+    │
+       [feat-a]
+    ○  ○○○○ Add auth         ──►   PR #1: feat-a → main
+    │
+  trunk()
 ```
 
 Each bookmark becomes a PR. Each PR targets the previous bookmark (or trunk). When you update your stack, `ryu` updates the PRs.
@@ -67,16 +70,16 @@ Bookmark Stacks
 
 Stack #1: feat-c
 
-  trunk()
-    │
-    ○  kpqvunts 7d3a1b2c Add user authentication
-    │  └─ [feat-a] ✓
-    │
-    ○  mzwwxrlq a1b2c3d4 Add session management
-    │  └─ [feat-b] ↑
-    │
+       [feat-c]
     @  yskvutnz e5f6a7b8 Add logout endpoint
-    │  └─ [feat-c]
+    │
+       [feat-b] ↑
+    ○  mzwwxrlq a1b2c3d4 Add session management
+    │
+       [feat-a] ✓
+    ○  kpqvunts 7d3a1b2c Add user authentication
+    │
+  trunk()
 
 1 stack, 3 bookmarks
 
@@ -101,21 +104,11 @@ Output:
 
 ```
 Submitting 3 bookmarks in stack:
-  - feat-a (synced)
-  - feat-b
   - feat-c
+  - feat-b
+  - feat-a (synced)
 
-Pushing bookmarks...
-  - feat-a already synced
-  ✓ Pushed feat-b
-  ✓ Pushed feat-c
-Creating PRs...
-  ✓ Created PR #12 for feat-b
-    https://github.com/you/repo/pull/12
-  ✓ Created PR #13 for feat-c
-    https://github.com/you/repo/pull/13
-Updating stack comments...
-Done!
+[push, create PRs, update stack comments...]
 
 Successfully submitted 3 bookmarks
 Created 2 PRs
@@ -123,16 +116,18 @@ Created 2 PRs
 
 ### Stack comments
 
-Each PR gets a comment showing the full stack:
+Each PR gets a comment showing the full stack with status indicators:
 
 ```
-This PR is part of a stack of 3 bookmarks:
+* 🟢 feat-c #13
+* 🟢 feat-b #12 👈
+* 🟣 feat-a #11
 
-1. `trunk()`
-1. [feat-a](https://github.com/you/repo/pull/11)
-1. **feat-b ← this PR**
-1. [feat-c](https://github.com/you/repo/pull/13)
+---
+This stack is managed by jj-ryu.
 ```
+
+GitHub/GitLab auto-link PR references and show status: 🟢 open, 🟣 merged, 🔴 closed, ⚫ draft.
 
 Comments update automatically when you re-submit.
 
@@ -215,12 +210,6 @@ ryu submit feat-session
 jj rebase -d main
 ryu submit feat-session
 ```
-
-## Limitations
-
-- Bookmarks with merge commits in their history are excluded
-- Linear stacks only (no diamond-shaped dependencies)
-- One remote per operation
 
 ## CLI reference
 

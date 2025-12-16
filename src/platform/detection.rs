@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 static RE_SSH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"git@[^:]+:(.+?)(?:\.git)?$").unwrap());
 
-/// Regex for HTTPS URLs: https://host/owner/repo.git
+/// Regex for HTTPS URLs: `https://host/owner/repo.git`
 static RE_HTTPS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"https?://[^/]+/(.+?)(?:\.git)?$").unwrap());
 

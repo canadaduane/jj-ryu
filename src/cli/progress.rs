@@ -17,12 +17,12 @@ pub struct CliProgress {
 
 impl CliProgress {
     /// Create verbose progress (for submit command)
-    pub fn verbose() -> Self {
+    pub const fn verbose() -> Self {
         Self { verbose: true }
     }
 
     /// Create compact progress (for sync command)
-    pub fn compact() -> Self {
+    pub const fn compact() -> Self {
         Self { verbose: false }
     }
 }

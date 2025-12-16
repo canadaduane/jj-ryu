@@ -192,13 +192,9 @@ impl E2ERepo {
         let dir = TempDir::new().ok()?;
         let prefix = unique_prefix();
 
-        // Clone via git (faster than gh repo clone)
-        let clone = Command::new("git")
-            .args([
-                "clone",
-                &format!("https://github.com/{}", repo_spec()),
-                dir.path().to_str()?,
-            ])
+        // Clone via gh CLI (handles auth automatically)
+        let clone = Command::new("gh")
+            .args(["repo", "clone", &repo_spec(), dir.path().to_str()?])
             .output()
             .ok()?;
 
@@ -416,20 +412,21 @@ fn get_pr_base(pr_number: u64) -> Option<String> {
 }
 
 fn get_pr_comments(pr_number: u64) -> Vec<String> {
+    // Use JSON array output to handle multi-line comment bodies correctly
     let output = Command::new("gh")
         .args([
             "api",
             &format!("repos/{}/issues/{pr_number}/comments", repo_spec()),
             "--jq",
-            ".[].body",
+            "[.[].body]",
         ])
         .output();
 
     match output {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
-            .lines()
-            .map(String::from)
-            .collect(),
+        Ok(o) if o.status.success() => {
+            let json_str = String::from_utf8_lossy(&o.stdout);
+            serde_json::from_str::<Vec<String>>(&json_str).unwrap_or_default()
+        }
         _ => vec![],
     }
 }

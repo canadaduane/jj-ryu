@@ -28,7 +28,7 @@ pub struct SubmissionResult {
 }
 
 /// Stack comment data embedded in PR comments
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StackCommentData {
     /// Schema version
     pub version: u8,
@@ -37,7 +37,7 @@ pub struct StackCommentData {
 }
 
 /// A single item in the stack
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StackItem {
     /// Bookmark name for this PR
     pub bookmark_name: String,
@@ -260,6 +260,7 @@ async fn report_dry_run(plan: &SubmissionPlan, progress: &dyn ProgressCallback) 
 }
 
 /// Build stack comment data from the plan and PRs
+#[allow(clippy::implicit_hasher)]
 pub fn build_stack_comment_data(
     plan: &SubmissionPlan,
     bookmark_to_pr: &HashMap<String, PullRequest>,
@@ -289,12 +290,13 @@ pub fn format_stack_comment(data: &StackCommentData, current_idx: usize) -> Resu
     let mut body = format!("{COMMENT_DATA_PREFIX}{encoded_data}{COMMENT_DATA_POSTFIX}\n");
 
     // Reverse order: newest/leaf at top, oldest at bottom
+    // Use plain #X format so GitHub auto-links with status indicators
     let reversed_idx = data.stack.len() - 1 - current_idx;
     for (i, item) in data.stack.iter().rev().enumerate() {
         if i == reversed_idx {
             let _ = writeln!(body, "* **#{} {STACK_COMMENT_THIS_PR}**", item.pr_number);
         } else {
-            let _ = writeln!(body, "* [#{}]({})", item.pr_number, item.pr_url);
+            let _ = writeln!(body, "* #{}", item.pr_number);
         }
     }
 
