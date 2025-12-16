@@ -4,9 +4,9 @@
   "description": "Stacked PRs for Jujutsu with GitHub/GitLab support",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dillon/jj-ryu.git"
+    "url": "git+https://github.com/dmmulroy/jj-ryu.git"
   },
-  "homepage": "https://github.com/dillon/jj-ryu",
+  "homepage": "https://github.com/dmmulroy/jj-ryu",
   "license": "MIT",
   "bin": {
     "ryu": "bin/ryu"

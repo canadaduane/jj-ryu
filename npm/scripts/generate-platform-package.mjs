@@ -35,7 +35,7 @@ const packageJson = {
   description: `ryu binary for ${config.os} ${config.cpu}${config.libc ? ` (${config.libc})` : ""}`,
   repository: {
     type: "git",
-    url: "git+https://github.com/dillon/jj-ryu.git",
+    url: "git+https://github.com/dmmulroy/jj-ryu.git",
   },
   license: "MIT",
   os: [config.os],

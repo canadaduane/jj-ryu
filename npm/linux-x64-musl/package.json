@@ -4,7 +4,7 @@
   "description": "ryu binary for linux x64 (musl)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dillon/jj-ryu.git"
+    "url": "git+https://github.com/dmmulroy/jj-ryu.git"
   },
   "license": "MIT",
   "os": [

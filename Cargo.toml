@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.85"
 description = "Stacked PRs for Jujutsu with GitHub/GitLab support"
 license = "MIT"
-repository = "https://github.com/dillon/jj-ryu"
+repository = "https://github.com/dmmulroy/jj-ryu"
 
 [[bin]]
 name = "ryu"
