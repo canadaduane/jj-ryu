@@ -4,8 +4,8 @@
 
 use crate::error::Result;
 use crate::platform::PlatformService;
-use crate::submit::analysis::{generate_pr_title, get_base_branch};
 use crate::submit::SubmissionAnalysis;
+use crate::submit::analysis::{generate_pr_title, get_base_branch};
 use crate::types::{Bookmark, NarrowedBookmarkSegment, PullRequest};
 use std::collections::HashMap;
 

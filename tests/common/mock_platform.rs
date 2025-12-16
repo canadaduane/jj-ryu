@@ -10,8 +10,8 @@ use jj_ryu::error::{Error, Result};
 use jj_ryu::platform::PlatformService;
 use jj_ryu::types::{PlatformConfig, PrComment, PullRequest};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Call record for create_pr
 #[derive(Debug, Clone, PartialEq)]

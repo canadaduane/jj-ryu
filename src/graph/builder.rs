@@ -79,7 +79,10 @@ pub fn build_change_graph(workspace: &JjWorkspace) -> Result<ChangeGraph> {
             // Add newly tainted change IDs for future traversals
             tainted_change_ids.extend(result.newly_tainted_change_ids);
             total_excluded_bookmark_count += result.excluded_bookmark_count;
-            debug!("  Excluded {} due to merge commit in history", bookmark.name);
+            debug!(
+                "  Excluded {} due to merge commit in history",
+                bookmark.name
+            );
             continue;
         }
 
@@ -89,7 +92,8 @@ pub fn build_change_graph(workspace: &JjWorkspace) -> Result<ChangeGraph> {
                 continue;
             }
             let first_change_id = segment.changes[0].change_id.clone();
-            bookmarked_change_id_to_segment.insert(first_change_id.clone(), segment.changes.clone());
+            bookmarked_change_id_to_segment
+                .insert(first_change_id.clone(), segment.changes.clone());
 
             for bm_name in &segment.bookmark_names {
                 bookmark_to_change_id.insert(bm_name.clone(), first_change_id.clone());

@@ -26,12 +26,10 @@ pub fn analyze_submission(
 ) -> Result<SubmissionAnalysis> {
     // Find which stack contains the target bookmark
     for stack in &graph.stacks {
-        let target_index = stack.segments.iter().position(|segment| {
-            segment
-                .bookmarks
-                .iter()
-                .any(|b| b.name == target_bookmark)
-        });
+        let target_index = stack
+            .segments
+            .iter()
+            .position(|segment| segment.bookmarks.iter().any(|b| b.name == target_bookmark));
 
         if let Some(idx) = target_index {
             // Get segments from trunk (index 0) to target (inclusive)
@@ -96,11 +94,9 @@ pub fn select_bookmark_for_segment(segment: &BookmarkSegment, target: Option<&st
 
     // 3. Prefer shorter names, then alphabetically first
     pool.into_iter()
-        .min_by(|a, b| {
-            match a.name.len().cmp(&b.name.len()) {
-                std::cmp::Ordering::Equal => a.name.cmp(&b.name),
-                other => other,
-            }
+        .min_by(|a, b| match a.name.len().cmp(&b.name.len()) {
+            std::cmp::Ordering::Equal => a.name.cmp(&b.name),
+            other => other,
         })
         .cloned()
         .unwrap_or_else(|| bookmarks[0].clone())
@@ -329,9 +325,9 @@ mod tests {
         let segments = vec![NarrowedBookmarkSegment {
             bookmark: make_bookmark("feat-a"),
             changes: vec![
-                make_log_entry("Fix typo in feature", &["feat-a"]),  // newest
-                make_log_entry("Add tests for feature", &[]),        // middle
-                make_log_entry("Implement cool feature", &[]),       // oldest (root)
+                make_log_entry("Fix typo in feature", &["feat-a"]), // newest
+                make_log_entry("Add tests for feature", &[]),       // middle
+                make_log_entry("Implement cool feature", &[]),      // oldest (root)
             ],
         }];
 

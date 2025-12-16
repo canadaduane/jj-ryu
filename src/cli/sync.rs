@@ -4,7 +4,7 @@ use crate::cli::CliProgress;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::platform::{create_platform_service, parse_repo_info};
-use jj_ryu::repo::{select_remote, JjWorkspace};
+use jj_ryu::repo::{JjWorkspace, select_remote};
 use jj_ryu::submit::{analyze_submission, create_submission_plan, execute_submission};
 use std::path::Path;
 
@@ -61,22 +61,13 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, dry_run: bool) -> Resul
         println!("Syncing stack: {leaf_bookmark}");
 
         let analysis = analyze_submission(&graph, leaf_bookmark)?;
-        let plan = create_submission_plan(
-            &analysis,
-            platform.as_ref(),
-            &remote_name,
-            &default_branch,
-        )
-        .await?;
+        let plan =
+            create_submission_plan(&analysis, platform.as_ref(), &remote_name, &default_branch)
+                .await?;
 
-        let result = execute_submission(
-            &plan,
-            &mut workspace,
-            platform.as_ref(),
-            &progress,
-            dry_run,
-        )
-        .await?;
+        let result =
+            execute_submission(&plan, &mut workspace, platform.as_ref(), &progress, dry_run)
+                .await?;
 
         total_pushed += result.pushed_bookmarks.len();
         total_created += result.created_prs.len();

@@ -24,7 +24,9 @@ impl GitHubService {
                 .map_err(|e| Error::GitHubApi(e.to_string()))?;
         }
 
-        let client = builder.build().map_err(|e| Error::GitHubApi(e.to_string()))?;
+        let client = builder
+            .build()
+            .map_err(|e| Error::GitHubApi(e.to_string()))?;
 
         Ok(Self {
             client,

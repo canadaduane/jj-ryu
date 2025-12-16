@@ -63,11 +63,7 @@ pub async fn get_gitlab_auth(host: Option<&str>) -> Result<GitLabAuthConfig> {
 
 async fn get_glab_cli_token(host: &str) -> Option<String> {
     // Check glab is available
-    Command::new("glab")
-        .arg("--version")
-        .output()
-        .await
-        .ok()?;
+    Command::new("glab").arg("--version").output().await.ok()?;
 
     // Check authenticated
     let status = Command::new("glab")
@@ -92,11 +88,7 @@ async fn get_glab_cli_token(host: &str) -> Option<String> {
     }
 
     let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token)
-    }
+    if token.is_empty() { None } else { Some(token) }
 }
 
 #[derive(Deserialize)]

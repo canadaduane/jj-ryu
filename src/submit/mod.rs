@@ -11,17 +11,17 @@ mod plan;
 mod progress;
 
 pub use analysis::{
-    analyze_submission, create_narrowed_segments, generate_pr_title, get_base_branch,
-    select_bookmark_for_segment, SubmissionAnalysis,
+    SubmissionAnalysis, analyze_submission, create_narrowed_segments, generate_pr_title,
+    get_base_branch, select_bookmark_for_segment,
 };
 pub use execute::{
-    execute_submission, format_stack_comment, SubmissionResult, STACK_COMMENT_THIS_PR,
+    STACK_COMMENT_THIS_PR, SubmissionResult, execute_submission, format_stack_comment,
 };
 
 // Exports for testing stack comment formatting (used by integration tests)
 pub use execute::{
-    build_stack_comment_data, StackCommentData, StackItem, COMMENT_DATA_PREFIX,
-    COMMENT_DATA_POSTFIX,
+    COMMENT_DATA_POSTFIX, COMMENT_DATA_PREFIX, StackCommentData, StackItem,
+    build_stack_comment_data,
 };
-pub use plan::{create_submission_plan, PrBaseUpdate, PrToCreate, SubmissionPlan};
+pub use plan::{PrBaseUpdate, PrToCreate, SubmissionPlan, create_submission_plan};
 pub use progress::{NoopProgress, Phase, ProgressCallback, PushStatus};

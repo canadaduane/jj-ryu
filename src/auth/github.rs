@@ -51,11 +51,7 @@ pub async fn get_github_auth() -> Result<GitHubAuthConfig> {
 
 async fn get_gh_cli_token() -> Option<String> {
     // Check gh is available
-    Command::new("gh")
-        .arg("--version")
-        .output()
-        .await
-        .ok()?;
+    Command::new("gh").arg("--version").output().await.ok()?;
 
     // Check authenticated
     let status = Command::new("gh")
@@ -80,11 +76,7 @@ async fn get_gh_cli_token() -> Option<String> {
     }
 
     let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token)
-    }
+    if token.is_empty() { None } else { Some(token) }
 }
 
 /// Test GitHub authentication

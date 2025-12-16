@@ -3,7 +3,7 @@
 mod common;
 
 use assert_cmd::Command;
-use common::{github_config, make_pr, MockPlatformService, TempJjRepo};
+use common::{MockPlatformService, TempJjRepo, github_config, make_pr};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::submit::{analyze_submission, create_submission_plan};
 use predicates::prelude::*;

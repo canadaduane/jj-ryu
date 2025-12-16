@@ -261,7 +261,7 @@ mod detection_test {
 }
 
 mod plan_test {
-    use crate::common::{github_config, make_linear_stack, make_pr, MockPlatformService};
+    use crate::common::{MockPlatformService, github_config, make_linear_stack, make_pr};
     use jj_ryu::submit::{analyze_submission, create_submission_plan};
 
     #[tokio::test]
@@ -496,14 +496,17 @@ mod plan_test {
         let calls = mock.get_find_pr_calls();
         assert!(!calls.is_empty(), "Should have made at least one API call");
         // But should not have completed all calls (fail fast)
-        assert!(calls.len() <= 3, "Should fail fast, not retry all bookmarks");
+        assert!(
+            calls.len() <= 3,
+            "Should fail fast, not retry all bookmarks"
+        );
     }
 }
 
 mod stack_comment_test {
     use jj_ryu::submit::{
-        build_stack_comment_data, format_stack_comment, StackCommentData, StackItem,
-        COMMENT_DATA_PREFIX, STACK_COMMENT_THIS_PR,
+        COMMENT_DATA_PREFIX, STACK_COMMENT_THIS_PR, StackCommentData, StackItem,
+        build_stack_comment_data, format_stack_comment,
     };
     use jj_ryu::types::{Bookmark, NarrowedBookmarkSegment, PullRequest};
     use std::collections::HashMap;
@@ -608,10 +611,7 @@ mod stack_comment_test {
     fn test_format_body_marks_current_pr() {
         let data = StackCommentData {
             version: 0,
-            stack: vec![
-                make_stack_item("feat-a", 1),
-                make_stack_item("feat-b", 2),
-            ],
+            stack: vec![make_stack_item("feat-a", 1), make_stack_item("feat-b", 2)],
         };
 
         // Format for second PR (index 1)

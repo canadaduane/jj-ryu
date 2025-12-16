@@ -68,8 +68,7 @@ impl TestContext {
         }
 
         let token = get_gh_token()?;
-        let service =
-            GitHubService::new(&token, TEST_OWNER.into(), TEST_REPO.into(), None).ok()?;
+        let service = GitHubService::new(&token, TEST_OWNER.into(), TEST_REPO.into(), None).ok()?;
 
         Some(Self {
             service,
@@ -984,7 +983,11 @@ async fn test_sync_after_merge() {
 
     // PR B should now target main
     let new_base = get_pr_base(pr_b);
-    assert_eq!(new_base, Some("main".into()), "PR B should target main after sync");
+    assert_eq!(
+        new_base,
+        Some("main".into()),
+        "PR B should target main after sync"
+    );
 
     repo.cleanup();
 }
@@ -1022,8 +1025,16 @@ async fn test_sync_multiple_stacks_updates_bases() {
     let pr_y = find_pr_number(&stack2[1]).expect("PR Y");
 
     // Verify initial bases: B->A, Y->X
-    assert_eq!(get_pr_base(pr_b), Some(stack1[0].clone()), "B should initially target A");
-    assert_eq!(get_pr_base(pr_y), Some(stack2[0].clone()), "Y should initially target X");
+    assert_eq!(
+        get_pr_base(pr_b),
+        Some(stack1[0].clone()),
+        "B should initially target A"
+    );
+    assert_eq!(
+        get_pr_base(pr_y),
+        Some(stack2[0].clone()),
+        "Y should initially target X"
+    );
 
     // Merge both root PRs
     assert!(merge_pr(pr_a), "Failed to merge PR A");
@@ -1081,8 +1092,14 @@ async fn test_submit_dry_run() {
     );
 
     // No PRs should exist
-    assert!(find_pr_number(&bookmarks[0]).is_none(), "dry-run created PR");
-    assert!(find_pr_number(&bookmarks[1]).is_none(), "dry-run created PR");
+    assert!(
+        find_pr_number(&bookmarks[0]).is_none(),
+        "dry-run created PR"
+    );
+    assert!(
+        find_pr_number(&bookmarks[1]).is_none(),
+        "dry-run created PR"
+    );
 
     // Now actually submit
     let output = repo.submit(&bookmarks[1]);

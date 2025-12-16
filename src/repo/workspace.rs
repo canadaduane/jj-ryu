@@ -6,16 +6,20 @@ use chrono::{DateTime, TimeZone, Utc};
 use jj_lib::backend::Timestamp;
 use jj_lib::commit::Commit;
 use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
-use jj_lib::git::{self, expand_fetch_refspecs, GitFetch, GitRefUpdate, GitSettings, RemoteCallbacks};
-use jj_lib::op_store::{RemoteRef, RemoteRefState};
+use jj_lib::git::{
+    self, GitFetch, GitRefUpdate, GitSettings, RemoteCallbacks, expand_fetch_refspecs,
+};
 use jj_lib::object_id::ObjectId;
+use jj_lib::op_store::{RemoteRef, RemoteRefState};
 use jj_lib::ref_name::{RefName, RemoteName};
 use jj_lib::repo::{Repo, StoreFactories};
 use jj_lib::repo_path::RepoPathUiConverter;
-use jj_lib::revset::{self, RevsetExtensions, RevsetParseContext, RevsetWorkspaceContext, SymbolResolver};
+use jj_lib::revset::{
+    self, RevsetExtensions, RevsetParseContext, RevsetWorkspaceContext, SymbolResolver,
+};
 use jj_lib::settings::UserSettings;
 use jj_lib::str_util::{StringExpression, StringMatcher, StringPattern};
-use jj_lib::workspace::{default_working_copy_factories, Workspace};
+use jj_lib::workspace::{Workspace, default_working_copy_factories};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -110,7 +114,10 @@ impl JjWorkspace {
                     .remote_bookmarks_matching(&name_matcher, &remote_matcher)
                     .filter(|(symbol, _)| symbol.remote.as_str() != "git")
                     .any(|(_, remote_ref)| {
-                        remote_ref.target.as_normal().is_some_and(|id| id == commit_id)
+                        remote_ref
+                            .target
+                            .as_normal()
+                            .is_some_and(|id| id == commit_id)
                     });
 
                 bookmarks.push(Bookmark {
@@ -159,7 +166,10 @@ impl JjWorkspace {
             .remote_bookmarks_matching(&name_matcher, &remote_matcher)
             .filter(|(symbol, _)| symbol.remote.as_str() != "git")
             .any(|(_, remote_ref)| {
-                remote_ref.target.as_normal().is_some_and(|id| id == commit_id)
+                remote_ref
+                    .target
+                    .as_normal()
+                    .is_some_and(|id| id == commit_id)
             });
 
         Ok(Some(Bookmark {
@@ -306,8 +316,8 @@ impl JjWorkspace {
 
         let mut entries = Vec::new();
         for commit_id in revset.iter() {
-            let commit_id = commit_id
-                .map_err(|e| Error::Revset(format!("Failed to iterate revset: {e}")))?;
+            let commit_id =
+                commit_id.map_err(|e| Error::Revset(format!("Failed to iterate revset: {e}")))?;
             let commit = repo
                 .store()
                 .get_commit(&commit_id)
@@ -320,10 +330,7 @@ impl JjWorkspace {
     }
 
     /// Convert a jj commit to a `LogEntry`
-    fn commit_to_log_entry(
-        repo: &Arc<jj_lib::repo::ReadonlyRepo>,
-        commit: &Commit,
-    ) -> LogEntry {
+    fn commit_to_log_entry(repo: &Arc<jj_lib::repo::ReadonlyRepo>, commit: &Commit) -> LogEntry {
         let view = repo.view();
 
         // Get bookmarks pointing to this commit
@@ -335,7 +342,10 @@ impl JjWorkspace {
         let remote_bookmarks: Vec<String> = view
             .all_remote_bookmarks()
             .filter(|(_, remote_ref)| {
-                remote_ref.target.as_normal().is_some_and(|id| id == commit.id())
+                remote_ref
+                    .target
+                    .as_normal()
+                    .is_some_and(|id| id == commit.id())
             })
             .map(|(symbol, _)| format!("{}@{}", symbol.name.as_str(), symbol.remote.as_str()))
             .collect();

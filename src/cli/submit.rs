@@ -4,7 +4,7 @@ use crate::cli::CliProgress;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::platform::{create_platform_service, parse_repo_info};
-use jj_ryu::repo::{select_remote, JjWorkspace};
+use jj_ryu::repo::{JjWorkspace, select_remote};
 use jj_ryu::submit::{analyze_submission, create_submission_plan, execute_submission};
 use std::path::Path;
 
@@ -52,7 +52,11 @@ pub async fn run_submit(
     println!(
         "Submitting {} bookmark{} in stack:",
         analysis.segments.len(),
-        if analysis.segments.len() == 1 { "" } else { "s" }
+        if analysis.segments.len() == 1 {
+            ""
+        } else {
+            "s"
+        }
     );
     // Display newest (leaf) first, oldest (closest to trunk) last
     for segment in analysis.segments.iter().rev() {
@@ -69,27 +73,37 @@ pub async fn run_submit(
     let default_branch = workspace.default_branch()?;
 
     // Create submission plan
-    let plan = create_submission_plan(&analysis, platform.as_ref(), &remote_name, &default_branch)
-        .await?;
+    let plan =
+        create_submission_plan(&analysis, platform.as_ref(), &remote_name, &default_branch).await?;
 
     // Execute plan
     let progress = CliProgress::verbose();
-    let result = execute_submission(&plan, &mut workspace, platform.as_ref(), &progress, dry_run)
-        .await?;
+    let result =
+        execute_submission(&plan, &mut workspace, platform.as_ref(), &progress, dry_run).await?;
 
     // Summary
     if !dry_run {
         println!();
         if result.success {
-            println!("Successfully submitted {} bookmark{}",
+            println!(
+                "Successfully submitted {} bookmark{}",
                 analysis.segments.len(),
-                if analysis.segments.len() == 1 { "" } else { "s" }
+                if analysis.segments.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
             );
 
             if !result.created_prs.is_empty() {
-                println!("Created {} PR{}",
+                println!(
+                    "Created {} PR{}",
                     result.created_prs.len(),
-                    if result.created_prs.len() == 1 { "" } else { "s" }
+                    if result.created_prs.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
                 );
             }
         } else {

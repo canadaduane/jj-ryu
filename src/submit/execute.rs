@@ -7,7 +7,7 @@ use crate::platform::PlatformService;
 use crate::repo::JjWorkspace;
 use crate::submit::{Phase, ProgressCallback, PushStatus, SubmissionPlan};
 use crate::types::PullRequest;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -79,7 +79,9 @@ pub async fn execute_submission(
     };
 
     if dry_run {
-        progress.on_message("Dry run - no changes will be made").await;
+        progress
+            .on_message("Dry run - no changes will be made")
+            .await;
         report_dry_run(plan, progress).await;
         return Ok(result);
     }
@@ -173,7 +175,10 @@ pub async fn execute_submission(
                 bookmark_to_pr.insert(pr_to_create.bookmark.name.clone(), pr);
             }
             Err(e) => {
-                let msg = format!("Failed to create PR for {}: {e}", pr_to_create.bookmark.name);
+                let msg = format!(
+                    "Failed to create PR for {}: {e}",
+                    pr_to_create.bookmark.name
+                );
                 progress.on_error(&Error::Platform(msg.clone())).await;
                 result.errors.push(msg);
                 result.success = false;
@@ -192,10 +197,11 @@ pub async fn execute_submission(
             if let Err(e) =
                 create_or_update_stack_comment(platform, &stack_data, idx, item.pr_number).await
             {
-                let msg = format!("Failed to update stack comment for {}: {e}", item.bookmark_name);
-                progress
-                    .on_error(&Error::Platform(msg.clone()))
-                    .await;
+                let msg = format!(
+                    "Failed to update stack comment for {}: {e}",
+                    item.bookmark_name
+                );
+                progress.on_error(&Error::Platform(msg.clone())).await;
                 result.errors.push(msg);
                 // Don't fail the whole submission for comment errors
             }
@@ -224,7 +230,10 @@ async fn report_dry_run(plan: &SubmissionPlan, progress: &dyn ProgressCallback) 
             progress
                 .on_message(&format!(
                     "  - {} (PR #{}) {} → {}",
-                    update.bookmark.name, update.pr.number, update.current_base, update.expected_base
+                    update.bookmark.name,
+                    update.pr.number,
+                    update.current_base,
+                    update.expected_base
                 ))
                 .await;
         }
@@ -272,9 +281,10 @@ pub fn build_stack_comment_data(
 
 /// Format the stack comment body for a PR
 pub fn format_stack_comment(data: &StackCommentData, current_idx: usize) -> Result<String> {
-    let encoded_data = BASE64.encode(serde_json::to_string(data).map_err(|e| {
-        Error::Internal(format!("Failed to serialize stack data: {e}"))
-    })?);
+    let encoded_data = BASE64.encode(
+        serde_json::to_string(data)
+            .map_err(|e| Error::Internal(format!("Failed to serialize stack data: {e}")))?,
+    );
 
     let mut body = format!("{COMMENT_DATA_PREFIX}{encoded_data}{COMMENT_DATA_POSTFIX}\n");
 
@@ -312,7 +322,9 @@ async fn create_or_update_stack_comment(
         .find(|c| c.body.contains(COMMENT_DATA_PREFIX) || c.body.contains(COMMENT_DATA_PREFIX_OLD));
 
     if let Some(comment) = existing {
-        platform.update_pr_comment(pr_number, comment.id, &body).await?;
+        platform
+            .update_pr_comment(pr_number, comment.id, &body)
+            .await?;
     } else {
         platform.create_pr_comment(pr_number, &body).await?;
     }

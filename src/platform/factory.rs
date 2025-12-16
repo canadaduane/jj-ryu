@@ -10,9 +10,7 @@ use crate::types::{Platform, PlatformConfig};
 /// Create a platform service from configuration
 ///
 /// Handles authentication and client construction for both GitHub and GitLab.
-pub async fn create_platform_service(
-    config: &PlatformConfig,
-) -> Result<Box<dyn PlatformService>> {
+pub async fn create_platform_service(config: &PlatformConfig) -> Result<Box<dyn PlatformService>> {
     match config.platform {
         Platform::GitHub => {
             let auth = get_github_auth().await?;

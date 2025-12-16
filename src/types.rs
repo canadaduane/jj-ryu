@@ -92,7 +92,6 @@ pub struct ChangeGraph {
     pub excluded_bookmark_count: usize,
 }
 
-
 /// A pull request / merge request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequest {

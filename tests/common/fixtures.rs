@@ -177,8 +177,7 @@ pub fn make_multi_bookmark_segment(names: &[&str]) -> ChangeGraph {
         .map(|name| (name.to_string(), change_id.clone()))
         .collect();
 
-    let log_entry =
-        make_log_entry_with_ids("Shared commit", &commit_id, &change_id, names);
+    let log_entry = make_log_entry_with_ids("Shared commit", &commit_id, &change_id, names);
 
     let segment = BookmarkSegment {
         bookmarks: names
