@@ -87,7 +87,7 @@ jobs:
           sed -i 's/^version = ".*"/version = "${{ needs.validate.outputs.version }}"/' Cargo.toml
 
       - name: Update Cargo.lock
-        run: cargo update -p jj-ryu --precise ${{ needs.validate.outputs.version }}
+        run: cargo check --quiet
 
       - name: Update npm package versions
         run: node npm/scripts/update-versions.mjs ${{ needs.validate.outputs.version }}
