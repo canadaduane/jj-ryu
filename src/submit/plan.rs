@@ -531,7 +531,7 @@ fn build_execution_nodes(
             let bookmark = bookmarks_needing_push
                 .iter()
                 .find(|b| b.name == seg.bookmark.name)
-                .unwrap()
+                .expect("bookmark in push_set verified above")
                 .clone();
             registry.register_push(&seg.bookmark.name, nodes.len());
             nodes.push(ExecutionNode {
@@ -571,7 +571,7 @@ fn build_execution_nodes(
             let create = prs_to_create
                 .iter()
                 .find(|c| c.bookmark.name == seg.bookmark.name)
-                .unwrap()
+                .expect("bookmark in create_set verified above")
                 .clone();
             registry.register_create(&seg.bookmark.name, nodes.len());
             nodes.push(ExecutionNode {

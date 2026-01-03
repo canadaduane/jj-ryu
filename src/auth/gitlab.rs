@@ -6,6 +6,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::env;
 use tokio::process::Command;
+use tracing::debug;
 
 /// GitLab authentication configuration
 #[derive(Debug, Clone)]
@@ -31,7 +32,9 @@ pub async fn get_gitlab_auth(host: Option<&str>) -> Result<GitLabAuthConfig> {
         .unwrap_or_else(|| "gitlab.com".to_string());
 
     // Try glab CLI first
+    debug!(host = %host, "attempting to get GitLab token via glab CLI");
     if let Some(token) = get_glab_cli_token(&host).await {
+        debug!("obtained GitLab token from glab CLI");
         return Ok(GitLabAuthConfig {
             token,
             source: AuthSource::Cli,
@@ -40,7 +43,9 @@ pub async fn get_gitlab_auth(host: Option<&str>) -> Result<GitLabAuthConfig> {
     }
 
     // Try environment variables
+    debug!("glab CLI token not available, checking env vars");
     if let Ok(token) = env::var("GITLAB_TOKEN") {
+        debug!("obtained GitLab token from GITLAB_TOKEN env var");
         return Ok(GitLabAuthConfig {
             token,
             source: AuthSource::EnvVar,
@@ -49,6 +54,7 @@ pub async fn get_gitlab_auth(host: Option<&str>) -> Result<GitLabAuthConfig> {
     }
 
     if let Ok(token) = env::var("GL_TOKEN") {
+        debug!("obtained GitLab token from GL_TOKEN env var");
         return Ok(GitLabAuthConfig {
             token,
             source: AuthSource::EnvVar,
@@ -56,6 +62,7 @@ pub async fn get_gitlab_auth(host: Option<&str>) -> Result<GitLabAuthConfig> {
         });
     }
 
+    debug!("no GitLab authentication found");
     Err(Error::Auth(
         "No GitLab authentication found. Run `glab auth login` or set GITLAB_TOKEN".to_string(),
     ))

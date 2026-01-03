@@ -6,6 +6,7 @@ use crate::types::{Platform, PlatformConfig, PrComment, PullRequest};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 /// GitLab service using reqwest
 pub struct GitLabService {
@@ -103,6 +104,7 @@ impl GitLabService {
 #[async_trait]
 impl PlatformService for GitLabService {
     async fn find_existing_pr(&self, head_branch: &str) -> Result<Option<PullRequest>> {
+        debug!(head_branch, "finding existing MR");
         let url = self.api_url(&format!(
             "/projects/{}/merge_requests",
             self.encoded_project()
@@ -120,7 +122,13 @@ impl PlatformService for GitLabService {
             .json()
             .await?;
 
-        Ok(mrs.into_iter().next().map(Into::into))
+        let result: Option<PullRequest> = mrs.into_iter().next().map(Into::into);
+        if let Some(ref pr) = result {
+            debug!(mr_iid = pr.number, "found existing MR");
+        } else {
+            debug!("no existing MR found");
+        }
+        Ok(result)
     }
 
     async fn create_pr_with_options(
@@ -130,6 +138,7 @@ impl PlatformService for GitLabService {
         title: &str,
         draft: bool,
     ) -> Result<PullRequest> {
+        debug!(head, base, draft, "creating MR");
         let url = self.api_url(&format!(
             "/projects/{}/merge_requests",
             self.encoded_project()
@@ -154,10 +163,13 @@ impl PlatformService for GitLabService {
             .json()
             .await?;
 
-        Ok(mr.into())
+        let pr: PullRequest = mr.into();
+        debug!(mr_iid = pr.number, "created MR");
+        Ok(pr)
     }
 
     async fn update_pr_base(&self, pr_number: u64, new_base: &str) -> Result<PullRequest> {
+        debug!(mr_iid = pr_number, new_base, "updating MR base");
         let url = self.api_url(&format!(
             "/projects/{}/merge_requests/{}",
             self.encoded_project(),
@@ -176,10 +188,12 @@ impl PlatformService for GitLabService {
             .json()
             .await?;
 
+        debug!(mr_iid = pr_number, "updated MR base");
         Ok(mr.into())
     }
 
     async fn publish_pr(&self, pr_number: u64) -> Result<PullRequest> {
+        debug!(mr_iid = pr_number, "publishing MR");
         // GitLab: Use state_event to mark MR as ready
         // We need to remove the draft/WIP status
         let url = self.api_url(&format!(
@@ -201,10 +215,12 @@ impl PlatformService for GitLabService {
             .json()
             .await?;
 
+        debug!(mr_iid = pr_number, "published MR");
         Ok(mr.into())
     }
 
     async fn list_pr_comments(&self, pr_number: u64) -> Result<Vec<PrComment>> {
+        debug!(mr_iid = pr_number, "listing MR comments");
         let url = self.api_url(&format!(
             "/projects/{}/merge_requests/{}/notes",
             self.encoded_project(),
@@ -222,17 +238,20 @@ impl PlatformService for GitLabService {
             .json()
             .await?;
 
-        Ok(notes
+        let comments: Vec<PrComment> = notes
             .into_iter()
             .filter(|n| !n.system)
             .map(|n| PrComment {
                 id: n.id,
                 body: n.body,
             })
-            .collect())
+            .collect();
+        debug!(mr_iid = pr_number, count = comments.len(), "listed MR comments");
+        Ok(comments)
     }
 
     async fn create_pr_comment(&self, pr_number: u64, body: &str) -> Result<()> {
+        debug!(mr_iid = pr_number, "creating MR comment");
         let url = self.api_url(&format!(
             "/projects/{}/merge_requests/{}/notes",
             self.encoded_project(),
@@ -248,10 +267,12 @@ impl PlatformService for GitLabService {
             .error_for_status()
             .map_err(|e| Error::GitLabApi(e.to_string()))?;
 
+        debug!(mr_iid = pr_number, "created MR comment");
         Ok(())
     }
 
     async fn update_pr_comment(&self, pr_number: u64, comment_id: u64, body: &str) -> Result<()> {
+        debug!(mr_iid = pr_number, comment_id, "updating MR comment");
         let url = self.api_url(&format!(
             "/projects/{}/merge_requests/{}/notes/{}",
             self.encoded_project(),
@@ -268,6 +289,7 @@ impl PlatformService for GitLabService {
             .error_for_status()
             .map_err(|e| Error::GitLabApi(e.to_string()))?;
 
+        debug!(mr_iid = pr_number, comment_id, "updated MR comment");
         Ok(())
     }
 

@@ -210,7 +210,7 @@ async fn build_analysis(
             // Handle --upto: truncate at specified bookmark
             let upto_bookmark = options
                 .upto_bookmark
-                .ok_or_else(|| Error::Internal("--upto requires a bookmark name".to_string()))?;
+                .ok_or_else(|| Error::InvalidArgument("--upto requires a bookmark name".to_string()))?;
 
             let upto_idx = analysis
                 .segments
@@ -238,7 +238,7 @@ async fn build_analysis(
                 .position(|s| s.bookmark.name == bookmark);
 
             let target_idx = target_idx.ok_or_else(|| {
-                Error::Internal(format!(
+                Error::InvalidArgument(format!(
                     "Target bookmark '{bookmark}' not found in analysis"
                 ))
             })?;
@@ -396,15 +396,15 @@ fn interactive_select(analysis: &SubmissionAnalysis) -> Result<Vec<String>> {
     // Validate selection is contiguous (no gaps).
     // A contiguous selection has span == count: max - min + 1 == len
     if !selections.is_empty() {
-        let min_idx = *selections.iter().min().unwrap();
-        let max_idx = *selections.iter().max().unwrap();
+        let min_idx = *selections.iter().min().expect("selections verified non-empty");
+        let max_idx = *selections.iter().max().expect("selections verified non-empty");
         let span = max_idx - min_idx + 1;
 
         if span != selections.len() {
             // Find first gap for error message
             let gap_idx = (min_idx..=max_idx)
                 .find(|i| !selections.contains(i))
-                .unwrap();
+                .expect("gap exists since span != len");
             return Err(Error::InvalidArgument(format!(
                 "Cannot submit - selection has gap at '{}'. Stacked PRs must be contiguous.",
                 analysis.segments[gap_idx].bookmark.name

@@ -4,6 +4,7 @@ use crate::auth::AuthSource;
 use crate::error::{Error, Result};
 use std::env;
 use tokio::process::Command;
+use tracing::debug;
 
 /// GitHub authentication configuration
 #[derive(Debug, Clone)]
@@ -22,7 +23,9 @@ pub struct GitHubAuthConfig {
 /// 3. `GH_TOKEN` environment variable
 pub async fn get_github_auth() -> Result<GitHubAuthConfig> {
     // Try gh CLI first
+    debug!("attempting to get GitHub token via gh CLI");
     if let Some(token) = get_gh_cli_token().await {
+        debug!("obtained GitHub token from gh CLI");
         return Ok(GitHubAuthConfig {
             token,
             source: AuthSource::Cli,
@@ -30,7 +33,9 @@ pub async fn get_github_auth() -> Result<GitHubAuthConfig> {
     }
 
     // Try environment variables
+    debug!("gh CLI token not available, checking env vars");
     if let Ok(token) = env::var("GITHUB_TOKEN") {
+        debug!("obtained GitHub token from GITHUB_TOKEN env var");
         return Ok(GitHubAuthConfig {
             token,
             source: AuthSource::EnvVar,
@@ -38,12 +43,14 @@ pub async fn get_github_auth() -> Result<GitHubAuthConfig> {
     }
 
     if let Ok(token) = env::var("GH_TOKEN") {
+        debug!("obtained GitHub token from GH_TOKEN env var");
         return Ok(GitHubAuthConfig {
             token,
             source: AuthSource::EnvVar,
         });
     }
 
+    debug!("no GitHub authentication found");
     Err(Error::Auth(
         "No GitHub authentication found. Run `gh auth login` or set GITHUB_TOKEN".to_string(),
     ))

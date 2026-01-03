@@ -158,7 +158,10 @@ pub fn generate_pr_title(
 
     // Use the oldest (root) commit's description as the title
     // changes[0] is newest, changes[last] is oldest/root
-    let root_commit = segment.changes.last().unwrap();
+    let root_commit = segment
+        .changes
+        .last()
+        .expect("segment has at least one change");
     let title = &root_commit.description_first_line;
     if title.is_empty() {
         Ok(bookmark_name.to_string())

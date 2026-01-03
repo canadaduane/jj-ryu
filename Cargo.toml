@@ -47,7 +47,6 @@ dialoguer = "0.11"
 
 [dev-dependencies]
 tokio-test = "0.4"
-mockall = "0.13"
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"

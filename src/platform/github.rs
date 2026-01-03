@@ -6,6 +6,7 @@ use crate::types::{Platform, PlatformConfig, PrComment, PullRequest};
 use async_trait::async_trait;
 use octocrab::Octocrab;
 use serde::Deserialize;
+use tracing::debug;
 
 // GraphQL response types for publish_pr mutation
 
@@ -112,6 +113,7 @@ fn pr_from_octocrab(pr: &octocrab::models::pulls::PullRequest) -> PullRequest {
 #[async_trait]
 impl PlatformService for GitHubService {
     async fn find_existing_pr(&self, head_branch: &str) -> Result<Option<PullRequest>> {
+        debug!(head_branch, "finding existing PR");
         let head = format!("{}:{}", &self.config.owner, head_branch);
 
         let prs = self
@@ -123,7 +125,13 @@ impl PlatformService for GitHubService {
             .send()
             .await?;
 
-        Ok(prs.items.first().map(pr_from_octocrab))
+        let result = prs.items.first().map(pr_from_octocrab);
+        if let Some(ref pr) = result {
+            debug!(pr_number = pr.number, "found existing PR");
+        } else {
+            debug!("no existing PR found");
+        }
+        Ok(result)
     }
 
     async fn create_pr_with_options(
@@ -133,6 +141,7 @@ impl PlatformService for GitHubService {
         title: &str,
         draft: bool,
     ) -> Result<PullRequest> {
+        debug!(head, base, draft, "creating PR");
         let pr = self
             .client
             .pulls(&self.config.owner, &self.config.repo)
@@ -141,10 +150,13 @@ impl PlatformService for GitHubService {
             .send()
             .await?;
 
-        Ok(pr_from_octocrab(&pr))
+        let result = pr_from_octocrab(&pr);
+        debug!(pr_number = result.number, "created PR");
+        Ok(result)
     }
 
     async fn update_pr_base(&self, pr_number: u64, new_base: &str) -> Result<PullRequest> {
+        debug!(pr_number, new_base, "updating PR base");
         let pr = self
             .client
             .pulls(&self.config.owner, &self.config.repo)
@@ -153,10 +165,12 @@ impl PlatformService for GitHubService {
             .send()
             .await?;
 
+        debug!(pr_number, "updated PR base");
         Ok(pr_from_octocrab(&pr))
     }
 
     async fn publish_pr(&self, pr_number: u64) -> Result<PullRequest> {
+        debug!(pr_number, "publishing PR");
         // Fetch PR to get node_id for GraphQL mutation
         let pr = self
             .client
@@ -210,10 +224,12 @@ impl PlatformService for GitHubService {
             .data
             .ok_or_else(|| Error::GitHubApi("No data in GraphQL response".to_string()))?;
 
+        debug!(pr_number, "published PR");
         Ok(data.mark_pull_request_ready_for_review.pull_request.into())
     }
 
     async fn list_pr_comments(&self, pr_number: u64) -> Result<Vec<PrComment>> {
+        debug!(pr_number, "listing PR comments");
         let comments = self
             .client
             .issues(&self.config.owner, &self.config.repo)
@@ -221,29 +237,35 @@ impl PlatformService for GitHubService {
             .send()
             .await?;
 
-        Ok(comments
+        let result: Vec<PrComment> = comments
             .items
             .into_iter()
             .map(|c| PrComment {
                 id: c.id.0,
                 body: c.body.unwrap_or_default(),
             })
-            .collect())
+            .collect();
+        debug!(pr_number, count = result.len(), "listed PR comments");
+        Ok(result)
     }
 
     async fn create_pr_comment(&self, pr_number: u64, body: &str) -> Result<()> {
+        debug!(pr_number, "creating PR comment");
         self.client
             .issues(&self.config.owner, &self.config.repo)
             .create_comment(pr_number, body)
             .await?;
+        debug!(pr_number, "created PR comment");
         Ok(())
     }
 
     async fn update_pr_comment(&self, _pr_number: u64, comment_id: u64, body: &str) -> Result<()> {
+        debug!(comment_id, "updating PR comment");
         self.client
             .issues(&self.config.owner, &self.config.repo)
             .update_comment(octocrab::models::CommentId(comment_id), body)
             .await?;
+        debug!(comment_id, "updated PR comment");
         Ok(())
     }
 
