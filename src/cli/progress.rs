@@ -1,6 +1,6 @@
 //! Shared CLI progress callback with styled output and spinners
 
-use crate::cli::style::{check, cross, hyperlink_url, Stream, Stylize};
+use crate::cli::style::{Stream, Stylize, check, cross, hyperlink_url};
 use anstream::{eprintln, print, println};
 use async_trait::async_trait;
 use jj_ryu::error::Error;

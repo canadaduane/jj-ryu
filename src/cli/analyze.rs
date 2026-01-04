@@ -1,6 +1,6 @@
 //! Default analyze command - print stack graph visualization
 
-use crate::cli::style::{self, check, pipe, up_arrow, Stylize};
+use crate::cli::style::{self, Stylize, check, pipe, up_arrow};
 use anstream::println;
 use jj_ryu::error::Result;
 use jj_ryu::graph::build_change_graph;
@@ -25,7 +25,10 @@ pub async fn run_analyze(path: &Path) -> Result<()> {
             "{}",
             "Stacks are bookmarks that point to commits between trunk and your work.".muted()
         );
-        println!("{}", "Create a bookmark with: jj bookmark create <name>".muted());
+        println!(
+            "{}",
+            "Create a bookmark with: jj bookmark create <name>".muted()
+        );
         return Ok(());
     }
 
@@ -140,7 +143,9 @@ pub async fn run_analyze(path: &Path) -> Result<()> {
         "{}",
         format!(
             "Legend: {} = synced with remote, {} = needs push, {} = working copy",
-            style::CHECK, style::UP_ARROW, style::CURRENT
+            style::CHECK,
+            style::UP_ARROW,
+            style::CURRENT
         )
         .muted()
     );

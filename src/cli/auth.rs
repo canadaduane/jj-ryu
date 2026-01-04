@@ -1,6 +1,6 @@
 //! Auth command - test and manage authentication
 
-use crate::cli::style::{check, spinner_style, Stylize};
+use crate::cli::style::{Stylize, check, spinner_style};
 use anstream::println;
 use indicatif::ProgressBar;
 use jj_ryu::auth::{get_github_auth, get_gitlab_auth, test_github_auth, test_gitlab_auth};
@@ -21,11 +21,7 @@ pub async fn run_auth_test(platform: Platform) -> Result<()> {
             let username = test_github_auth(&config).await?;
 
             spinner.finish_and_clear();
-            println!(
-                "{} Authenticated as: {}",
-                check(),
-                username.accent()
-            );
+            println!("{} Authenticated as: {}", check(), username.accent());
             println!("  {} {:?}", "Token source:".muted(), config.source);
         }
         Platform::GitLab => {
@@ -38,11 +34,7 @@ pub async fn run_auth_test(platform: Platform) -> Result<()> {
             let username = test_gitlab_auth(&config).await?;
 
             spinner.finish_and_clear();
-            println!(
-                "{} Authenticated as: {}",
-                check(),
-                username.accent()
-            );
+            println!("{} Authenticated as: {}", check(), username.accent());
             println!("  {} {:?}", "Token source:".muted(), config.source);
             println!("  {} {}", "Host:".muted(), config.host);
         }
@@ -88,10 +80,7 @@ pub fn run_auth_setup(platform: Platform) {
             );
             println!();
             println!("{}", "For self-hosted GitLab:".muted());
-            println!(
-                "  {}",
-                "Set GITLAB_HOST to your instance hostname".muted()
-            );
+            println!("  {}", "Set GITLAB_HOST to your instance hostname".muted());
         }
     }
 }

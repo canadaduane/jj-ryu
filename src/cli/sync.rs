@@ -1,16 +1,16 @@
 //! Sync command - sync all stacks with remote
 
-use crate::cli::style::{arrow, check, spinner_style, Stylize, CHECK};
 use crate::cli::CliProgress;
+use crate::cli::style::{CHECK, Stylize, arrow, check, spinner_style};
 use anstream::println;
 use dialoguer::Confirm;
 use indicatif::ProgressBar;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::platform::{create_platform_service, parse_repo_info};
-use jj_ryu::repo::{select_remote, JjWorkspace};
+use jj_ryu::repo::{JjWorkspace, select_remote};
 use jj_ryu::submit::{
-    analyze_submission, create_submission_plan, execute_submission, SubmissionPlan,
+    SubmissionPlan, analyze_submission, create_submission_plan, execute_submission,
 };
 use jj_ryu::types::BranchStack;
 use std::path::Path;
