@@ -7,7 +7,8 @@ use jj_lib::backend::Timestamp;
 use jj_lib::commit::Commit;
 use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
 use jj_lib::git::{
-    self, GitFetch, GitRefUpdate, GitSettings, RemoteCallbacks, expand_fetch_refspecs,
+    self, GitFetch, GitImportOptions, GitRefUpdate, GitSettings, RemoteCallbacks,
+    expand_fetch_refspecs,
 };
 use jj_lib::object_id::ObjectId;
 use jj_lib::op_store::{RemoteRef, RemoteRefState};
@@ -448,8 +449,21 @@ impl JjWorkspace {
         // Start a transaction for the fetch
         let mut tx = repo.start_transaction();
 
-        let mut fetch = GitFetch::new(tx.repo_mut(), &git_settings)
-            .map_err(|e| Error::Git(format!("Failed to create fetch: {e}")))?;
+        let import_options = GitImportOptions {
+            auto_local_bookmark: git_settings.auto_local_bookmark,
+            abandon_unreachable_commits: git_settings.abandon_unreachable_commits,
+            remote_auto_track_bookmarks: std::iter::once((
+                RemoteName::new(remote).to_owned(),
+                StringMatcher::all(),
+            ))
+            .collect(),
+        };
+        let mut fetch = GitFetch::new(
+            tx.repo_mut(),
+            git_settings.to_subprocess_options(),
+            &import_options,
+        )
+        .map_err(|e| Error::Git(format!("Failed to create fetch: {e}")))?;
 
         let remote_name = RemoteName::new(remote);
         let refspecs = expand_fetch_refspecs(remote_name, StringExpression::all())
@@ -526,7 +540,7 @@ impl JjWorkspace {
 
         git::push_updates(
             tx.repo_mut().base_repo().as_ref(),
-            &git_settings,
+            git_settings.to_subprocess_options(),
             remote_name,
             &[update],
             RemoteCallbacks::default(),

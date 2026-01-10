@@ -2,7 +2,7 @@
 name = "jj-ryu"
 version = "0.0.1-alpha.8"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 description = "Stacked PRs for Jujutsu with GitHub/GitLab support"
 license = "MIT"
 repository = "https://github.com/dmmulroy/jj-ryu"
@@ -17,8 +17,8 @@ path = "src/lib.rs"
 
 [dependencies]
 # jj integration
-jj-lib = "0.36"
-gix = { version = "0.75", default-features = false, features = ["blocking-network-client"] }
+jj-lib = "0.37"
+gix = { version = "0.77", default-features = false, features = ["blocking-network-client"] }
 
 # async runtime
 tokio = { version = "1", features = ["full"] }
