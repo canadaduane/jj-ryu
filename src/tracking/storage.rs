@@ -19,21 +19,22 @@ const TRACKING_FILE: &str = "tracked.toml";
 /// and use its contents as the actual repo path.
 ///
 /// Falls back to the original path if resolution fails.
-pub fn resolve_repo_path(workspace_root: &Path) -> PathBuf {
+pub(super) fn resolve_repo_path(workspace_root: &Path) -> PathBuf {
     let repo_path = workspace_root.join(".jj").join("repo");
 
     // In jj workspaces, .jj/repo may be a file containing the path to the real repo
-    if repo_path.is_file()
-        && let Ok(contents) = fs::read_to_string(&repo_path)
-    {
-        let target = PathBuf::from(contents.trim());
-        if target.is_dir() {
-            return target;
+    if repo_path.is_file() {
+        if let Ok(contents) = fs::read_to_string(&repo_path) {
+            let target = PathBuf::from(contents.trim());
+            if target.is_dir() {
+                return fs::canonicalize(&target).unwrap_or(target);
+            }
         }
+        // Pointer file exists but is invalid/unreadable - return as-is to surface error
+        return repo_path;
     }
 
-    // For regular workspaces, canonicalize to resolve any symlinks
-    fs::canonicalize(&repo_path).unwrap_or(repo_path)
+    repo_path
 }
 
 /// Get path to the ryu metadata directory.
@@ -100,8 +101,6 @@ pub fn save_tracking(workspace_root: &Path, state: &TrackingState) -> Result<()>
 mod tests {
     use super::*;
     use crate::tracking::TrackedBookmark;
-    #[cfg(unix)]
-    use std::os::unix::fs::symlink;
     use tempfile::TempDir;
 
     fn setup_fake_jj_workspace() -> TempDir {
@@ -181,8 +180,6 @@ mod tests {
         let temp = setup_fake_jj_workspace();
         let resolved = resolve_repo_path(temp.path());
 
-        // Should return a canonicalized (absolute) path
-        assert!(resolved.is_absolute());
         assert!(resolved.ends_with(".jj/repo"));
         assert!(resolved.exists());
     }
@@ -196,33 +193,6 @@ mod tests {
         // Should return the original path as fallback
         assert!(resolved.ends_with(".jj/repo"));
         assert!(!resolved.exists());
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_resolve_repo_path_symlink_resolved() {
-        // Simulate jj workspace structure:
-        //   parent/.jj/repo/  (real directory)
-        //   child/.jj/repo -> parent/.jj/repo  (symlink)
-        let temp = TempDir::new().unwrap();
-        let parent = temp.path().join("parent");
-        let child = temp.path().join("child");
-
-        // Create parent workspace with real .jj/repo
-        let parent_repo = parent.join(".jj").join("repo");
-        fs::create_dir_all(&parent_repo).unwrap();
-
-        // Create child workspace with symlinked .jj/repo
-        let child_jj = child.join(".jj");
-        fs::create_dir_all(&child_jj).unwrap();
-        symlink(&parent_repo, child_jj.join("repo")).unwrap();
-
-        // resolve_repo_path should follow the symlink
-        let resolved = resolve_repo_path(&child);
-
-        // The resolved path should point to the parent's repo (symlink resolved)
-        let canonical_parent = fs::canonicalize(&parent_repo).unwrap();
-        assert_eq!(resolved, canonical_parent);
     }
 
     #[test]
@@ -241,12 +211,17 @@ mod tests {
         // Create child workspace with pointer file
         let child_jj = child.join(".jj");
         fs::create_dir_all(&child_jj).unwrap();
-        fs::write(child_jj.join("repo"), parent_repo.to_string_lossy().as_ref()).unwrap();
+        fs::write(
+            child_jj.join("repo"),
+            parent_repo.to_string_lossy().as_ref(),
+        )
+        .unwrap();
 
-        // resolve_repo_path should read the pointer file
+        // resolve_repo_path should read the pointer file and canonicalize
         let resolved = resolve_repo_path(&child);
 
-        // The resolved path should be the parent's repo
-        assert_eq!(resolved, parent_repo);
+        // The resolved path should be the canonicalized parent's repo
+        let canonical_parent = fs::canonicalize(&parent_repo).unwrap();
+        assert_eq!(resolved, canonical_parent);
     }
 }
