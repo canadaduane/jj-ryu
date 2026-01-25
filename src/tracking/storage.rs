@@ -11,16 +11,28 @@ const RYU_DIR: &str = "ryu";
 /// Filename for tracking state.
 const TRACKING_FILE: &str = "tracked.toml";
 
-/// Resolve the `.jj/repo` path, following symlinks if present.
+/// Resolve the `.jj/repo` path, handling jj workspace indirection.
 ///
-/// In jj workspaces (created via `jj workspace add`), the `.jj/repo` folder
-/// is a symlink to the parent workspace's `.jj/repo`. We must resolve this
-/// symlink before performing file operations to ensure writes succeed.
+/// In jj workspaces (created via `jj workspace add`), the `.jj/repo` path
+/// in child workspaces is a plain text file containing the absolute path
+/// to the parent workspace's `.jj/repo` directory. We must read this file
+/// and use its contents as the actual repo path.
 ///
-/// Falls back to the original path if canonicalization fails (e.g., the
-/// directory doesn't exist yet in a fresh workspace).
+/// Falls back to the original path if resolution fails.
 pub fn resolve_repo_path(workspace_root: &Path) -> PathBuf {
     let repo_path = workspace_root.join(".jj").join("repo");
+
+    // In jj workspaces, .jj/repo may be a file containing the path to the real repo
+    if repo_path.is_file()
+        && let Ok(contents) = fs::read_to_string(&repo_path)
+    {
+        let target = PathBuf::from(contents.trim());
+        if target.is_dir() {
+            return target;
+        }
+    }
+
+    // For regular workspaces, canonicalize to resolve any symlinks
     fs::canonicalize(&repo_path).unwrap_or(repo_path)
 }
 
@@ -211,5 +223,30 @@ mod tests {
         // The resolved path should point to the parent's repo (symlink resolved)
         let canonical_parent = fs::canonicalize(&parent_repo).unwrap();
         assert_eq!(resolved, canonical_parent);
+    }
+
+    #[test]
+    fn test_resolve_repo_path_pointer_file() {
+        // Simulate jj workspace pointer file structure:
+        //   parent/.jj/repo/  (real directory)
+        //   child/.jj/repo   (file containing path to parent's repo)
+        let temp = TempDir::new().unwrap();
+        let parent = temp.path().join("parent");
+        let child = temp.path().join("child");
+
+        // Create parent workspace with real .jj/repo
+        let parent_repo = parent.join(".jj").join("repo");
+        fs::create_dir_all(&parent_repo).unwrap();
+
+        // Create child workspace with pointer file
+        let child_jj = child.join(".jj");
+        fs::create_dir_all(&child_jj).unwrap();
+        fs::write(child_jj.join("repo"), parent_repo.to_string_lossy().as_ref()).unwrap();
+
+        // resolve_repo_path should read the pointer file
+        let resolved = resolve_repo_path(&child);
+
+        // The resolved path should be the parent's repo
+        assert_eq!(resolved, parent_repo);
     }
 }
