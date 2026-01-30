@@ -1,6 +1,6 @@
 //! Persistence for tracking state in `.jj/repo/ryu/`.
 
-use super::{TrackingState, TRACKING_VERSION};
+use super::{TRACKING_VERSION, TrackingState};
 use crate::error::{Error, Result};
 use std::fs;
 use std::path::{Path, PathBuf};

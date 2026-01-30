@@ -770,7 +770,10 @@ mod tests {
 
         // Current PR should have marker
         assert!(
-            body.contains(&format!("!2]({}) {STACK_COMMENT_THIS_PR}", "https://gitlab.com/test/test/-/merge_requests/2")),
+            body.contains(&format!(
+                "!2]({}) {STACK_COMMENT_THIS_PR}",
+                "https://gitlab.com/test/test/-/merge_requests/2"
+            )),
             "Current PR should have marker: {body}"
         );
     }
