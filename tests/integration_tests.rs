@@ -341,7 +341,7 @@ async fn test_plan_pr_numbers_increment() {
 // Git Fetch Tests (Issue #8)
 // =============================================================================
 
-/// Test that git_fetch handles rewrites after fetching rebased commits.
+/// Test that `git_fetch` handles rewrites after fetching rebased commits.
 ///
 /// This reproduces issue #8 where `ryu sync` panicked with:
 /// "BUG: Descendants have not been rebased after the last rewrites"
@@ -350,7 +350,7 @@ async fn test_plan_pr_numbers_increment() {
 /// 1. User creates a bookmark and pushes to remote
 /// 2. Remote rebases the commit (e.g., GitHub rebase merge)
 /// 3. User fetches - jj detects the rewrite
-/// 4. Without calling rebase_descendants(), tx.commit() panics
+/// 4. Without calling `rebase_descendants()`, `tx.commit()` panics
 #[test]
 fn test_git_fetch_handles_rebased_commits() {
     // Create a bare git repo to act as "remote"

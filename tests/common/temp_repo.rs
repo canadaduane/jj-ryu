@@ -184,6 +184,7 @@ impl TempJjRepo {
     }
 
     /// Add a git remote pointing to a bare repository
+    #[allow(dead_code)]
     pub fn add_remote(&self, name: &str, path: &Path) {
         self.run_jj(&["git", "remote", "add", name, &path.to_string_lossy()]);
     }
@@ -191,6 +192,7 @@ impl TempJjRepo {
     /// Push a bookmark to a remote using jj
     ///
     /// Automatically tracks the bookmark first if needed.
+    #[allow(dead_code)]
     pub fn push_bookmark(&self, bookmark: &str, remote: &str) {
         // Track bookmark first (required for new remotes)
         let _ = Command::new("jj")
@@ -210,6 +212,7 @@ impl TempJjRepo {
     }
 
     /// Create a bare git repository for use as a remote
+    #[allow(dead_code)]
     pub fn create_bare_remote() -> (TempDir, PathBuf) {
         let dir = TempDir::new().expect("failed to create temp directory for bare remote");
         let path = dir.path().to_path_buf();
