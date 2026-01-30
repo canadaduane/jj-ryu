@@ -1,6 +1,6 @@
 //! Persistence for tracking state in `.jj/repo/ryu/`.
 
-use super::{TRACKING_VERSION, TrackingState};
+use super::{TrackingState, TRACKING_VERSION};
 use crate::error::{Error, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,9 +11,35 @@ const RYU_DIR: &str = "ryu";
 /// Filename for tracking state.
 const TRACKING_FILE: &str = "tracked.toml";
 
+/// Resolve the `.jj/repo` path, handling jj workspace indirection.
+///
+/// In jj workspaces (created via `jj workspace add`), the `.jj/repo` path
+/// in child workspaces is a plain text file containing the absolute path
+/// to the parent workspace's `.jj/repo` directory. We must read this file
+/// and use its contents as the actual repo path.
+///
+/// Falls back to the original path if resolution fails.
+pub(super) fn resolve_repo_path(workspace_root: &Path) -> PathBuf {
+    let repo_path = workspace_root.join(".jj").join("repo");
+
+    // In jj workspaces, .jj/repo may be a file containing the path to the real repo
+    if repo_path.is_file() {
+        if let Ok(contents) = fs::read_to_string(&repo_path) {
+            let target = PathBuf::from(contents.trim());
+            if target.is_dir() {
+                return fs::canonicalize(&target).unwrap_or(target);
+            }
+        }
+        // Pointer file exists but is invalid/unreadable - return as-is to surface error
+        return repo_path;
+    }
+
+    repo_path
+}
+
 /// Get path to the ryu metadata directory.
 fn ryu_dir(workspace_root: &Path) -> PathBuf {
-    workspace_root.join(".jj").join("repo").join(RYU_DIR)
+    resolve_repo_path(workspace_root).join(RYU_DIR)
 }
 
 /// Get path to the tracking state file.
@@ -147,5 +173,55 @@ mod tests {
         let content = fs::read_to_string(tracking_path(temp.path())).unwrap();
         assert!(content.starts_with("# ryu tracking metadata"));
         assert!(content.contains("Auto-generated"));
+    }
+
+    #[test]
+    fn test_resolve_repo_path_regular_directory() {
+        let temp = setup_fake_jj_workspace();
+        let resolved = resolve_repo_path(temp.path());
+
+        assert!(resolved.ends_with(".jj/repo"));
+        assert!(resolved.exists());
+    }
+
+    #[test]
+    fn test_resolve_repo_path_nonexistent_fallback() {
+        let temp = TempDir::new().unwrap();
+        // Don't create .jj/repo - it doesn't exist
+        let resolved = resolve_repo_path(temp.path());
+
+        // Should return the original path as fallback
+        assert!(resolved.ends_with(".jj/repo"));
+        assert!(!resolved.exists());
+    }
+
+    #[test]
+    fn test_resolve_repo_path_pointer_file() {
+        // Simulate jj workspace pointer file structure:
+        //   parent/.jj/repo/  (real directory)
+        //   child/.jj/repo   (file containing path to parent's repo)
+        let temp = TempDir::new().unwrap();
+        let parent = temp.path().join("parent");
+        let child = temp.path().join("child");
+
+        // Create parent workspace with real .jj/repo
+        let parent_repo = parent.join(".jj").join("repo");
+        fs::create_dir_all(&parent_repo).unwrap();
+
+        // Create child workspace with pointer file
+        let child_jj = child.join(".jj");
+        fs::create_dir_all(&child_jj).unwrap();
+        fs::write(
+            child_jj.join("repo"),
+            parent_repo.to_string_lossy().as_ref(),
+        )
+        .unwrap();
+
+        // resolve_repo_path should read the pointer file and canonicalize
+        let resolved = resolve_repo_path(&child);
+
+        // The resolved path should be the canonicalized parent's repo
+        let canonical_parent = fs::canonicalize(&parent_repo).unwrap();
+        assert_eq!(resolved, canonical_parent);
     }
 }

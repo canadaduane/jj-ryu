@@ -3,6 +3,7 @@
 //! The cache is stored in `.jj/repo/ryu/pr_cache.toml` and can be safely
 //! deleted - it will be rebuilt on the next submit.
 
+use super::storage::resolve_repo_path;
 use crate::error::{Error, Result};
 use crate::types::PullRequest;
 use chrono::{DateTime, Utc};
@@ -88,9 +89,7 @@ impl PrCache {
 
 /// Get path to the PR cache file.
 pub fn pr_cache_path(workspace_root: &Path) -> PathBuf {
-    workspace_root
-        .join(".jj")
-        .join("repo")
+    resolve_repo_path(workspace_root)
         .join("ryu")
         .join(PR_CACHE_FILE)
 }
