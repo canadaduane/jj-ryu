@@ -497,6 +497,15 @@ impl JjWorkspace {
             .import_refs()
             .map_err(|e| Error::Git(format!("Failed to import refs: {e}")))?;
 
+        // Rebase descendants if there were any rewrites from the import
+        // This is required before committing the transaction - see issue #8
+        // Without this, jj-lib panics with "BUG: Descendants have not been rebased"
+        if tx.repo().has_rewrites() {
+            tx.repo_mut()
+                .rebase_descendants()
+                .map_err(|e| Error::Git(format!("Failed to rebase descendants: {e}")))?;
+        }
+
         // Commit the transaction
         tx.commit(format!("fetch from {remote}"))
             .map_err(|e| Error::Git(format!("Failed to commit fetch: {e}")))?;

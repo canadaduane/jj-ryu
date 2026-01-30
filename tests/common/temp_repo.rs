@@ -1,7 +1,7 @@
 //! Temporary jj repository for testing
 
 use jj_ryu::repo::JjWorkspace;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 
@@ -181,6 +181,52 @@ impl TempJjRepo {
         if !output.status.success() {
             self.commit(message);
         }
+    }
+
+    /// Add a git remote pointing to a bare repository
+    pub fn add_remote(&self, name: &str, path: &Path) {
+        self.run_jj(&["git", "remote", "add", name, &path.to_string_lossy()]);
+    }
+
+    /// Push a bookmark to a remote using jj
+    ///
+    /// Automatically tracks the bookmark first if needed.
+    pub fn push_bookmark(&self, bookmark: &str, remote: &str) {
+        // Track bookmark first (required for new remotes)
+        let _ = Command::new("jj")
+            .args(["bookmark", "track", bookmark, &format!("--remote={remote}")])
+            .current_dir(self.dir.path())
+            .output();
+
+        self.run_jj(&[
+            "git",
+            "push",
+            "--bookmark",
+            bookmark,
+            "--remote",
+            remote,
+            "--allow-new",
+        ]);
+    }
+
+    /// Create a bare git repository for use as a remote
+    pub fn create_bare_remote() -> (TempDir, PathBuf) {
+        let dir = TempDir::new().expect("failed to create temp directory for bare remote");
+        let path = dir.path().to_path_buf();
+
+        let output = Command::new("git")
+            .args(["init", "--bare"])
+            .current_dir(&path)
+            .output()
+            .expect("git binary not found");
+
+        assert!(
+            output.status.success(),
+            "git init --bare failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        (dir, path)
     }
 }
 

@@ -336,3 +336,138 @@ async fn test_plan_pr_numbers_increment() {
     assert_eq!(creates[0].bookmark.name, "feat-a");
     assert_eq!(creates[1].bookmark.name, "feat-b");
 }
+
+// =============================================================================
+// Git Fetch Tests (Issue #8)
+// =============================================================================
+
+/// Test that git_fetch handles rewrites after fetching rebased commits.
+///
+/// This reproduces issue #8 where `ryu sync` panicked with:
+/// "BUG: Descendants have not been rebased after the last rewrites"
+///
+/// The scenario:
+/// 1. User creates a bookmark and pushes to remote
+/// 2. Remote rebases the commit (e.g., GitHub rebase merge)
+/// 3. User fetches - jj detects the rewrite
+/// 4. Without calling rebase_descendants(), tx.commit() panics
+#[test]
+fn test_git_fetch_handles_rebased_commits() {
+    // Create a bare git repo to act as "remote"
+    let (_remote_dir, remote_path) = TempJjRepo::create_bare_remote();
+
+    // Create local jj repo
+    let repo = TempJjRepo::new();
+
+    // Add the bare repo as a remote
+    repo.add_remote("origin", &remote_path);
+
+    // Create a bookmark and push it
+    // We need to create the bookmark on the commit with the description, not the working copy
+    // jj commit -m "X" creates commit X and leaves WC as empty child
+    // So we commit, then move bookmark to parent (@-)
+    repo.commit("Add feature A");
+    // Create bookmark on the parent (the actual commit with description)
+    StdCommand::new("jj")
+        .args(["bookmark", "create", "feat-a", "-r", "@-"])
+        .current_dir(repo.path())
+        .output()
+        .expect("create bookmark");
+    repo.push_bookmark("feat-a", "origin");
+
+    // Simulate a rebase on the remote by creating a new commit with same content
+    // but different commit ID (like GitHub rebase merge does)
+    //
+    // We do this by:
+    // 1. Clone the bare repo to a temp location
+    // 2. Checkout the branch
+    // 3. Amend the commit to change its ID
+    // 4. Force push to the bare repo
+    let temp_clone = TempDir::new().expect("create temp clone dir");
+    let clone_output = StdCommand::new("git")
+        .args(["clone", &remote_path.to_string_lossy(), "."])
+        .current_dir(temp_clone.path())
+        .output()
+        .expect("git clone failed");
+
+    assert!(
+        clone_output.status.success(),
+        "git clone failed: {}",
+        String::from_utf8_lossy(&clone_output.stderr)
+    );
+
+    // Checkout the feat-a branch
+    let checkout_output = StdCommand::new("git")
+        .args(["checkout", "feat-a"])
+        .current_dir(temp_clone.path())
+        .output()
+        .expect("git checkout failed");
+
+    assert!(
+        checkout_output.status.success(),
+        "git checkout failed: {}",
+        String::from_utf8_lossy(&checkout_output.stderr)
+    );
+
+    // Configure git user for the clone
+    StdCommand::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(temp_clone.path())
+        .output()
+        .expect("git config email");
+    StdCommand::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(temp_clone.path())
+        .output()
+        .expect("git config name");
+
+    // Create a new commit with --amend to change the commit ID
+    // This simulates what happens when GitHub does a rebase merge
+    let amend_output = StdCommand::new("git")
+        .args([
+            "commit",
+            "--amend",
+            "--allow-empty",
+            "-m",
+            "Add feature A (rebased)",
+            "--date",
+            "2026-01-01T00:00:00",
+        ])
+        .current_dir(temp_clone.path())
+        .output()
+        .expect("git amend failed");
+
+    assert!(
+        amend_output.status.success(),
+        "git commit --amend failed: {}",
+        String::from_utf8_lossy(&amend_output.stderr)
+    );
+
+    // Force push the amended commit to the bare repo
+    let push_output = StdCommand::new("git")
+        .args(["push", "--force", "origin", "feat-a"])
+        .current_dir(temp_clone.path())
+        .output()
+        .expect("git push failed");
+
+    assert!(
+        push_output.status.success(),
+        "git push --force failed: {}",
+        String::from_utf8_lossy(&push_output.stderr)
+    );
+
+    // Now fetch from the remote - this should NOT panic
+    // Before the fix, this would panic with:
+    // "BUG: Descendants have not been rebased after the last rewrites"
+    let mut workspace = repo.workspace();
+    let result = workspace.git_fetch("origin");
+
+    assert!(
+        result.is_ok(),
+        "git_fetch should succeed after remote rebase, got: {:?}",
+        result.err()
+    );
+}
+
+use std::process::Command as StdCommand;
+use tempfile::TempDir;
