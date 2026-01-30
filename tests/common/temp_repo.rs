@@ -33,6 +33,18 @@ impl TempJjRepo {
             String::from_utf8_lossy(&output.stderr)
         );
 
+        // Configure user info for the repo (required for pushing in CI)
+        Command::new("jj")
+            .args(["config", "set", "--repo", "user.name", "Test User"])
+            .current_dir(dir.path())
+            .output()
+            .expect("failed to set user.name");
+        Command::new("jj")
+            .args(["config", "set", "--repo", "user.email", "test@test.com"])
+            .current_dir(dir.path())
+            .output()
+            .expect("failed to set user.email");
+
         // Create initial commit to have something to build on
         let output = Command::new("jj")
             .args(["commit", "-m", "Initial commit"])
