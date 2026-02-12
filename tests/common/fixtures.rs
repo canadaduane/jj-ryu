@@ -56,6 +56,36 @@ pub fn make_log_entry_with_ids(
         author_name: "Test Author".to_string(),
         author_email: "test@example.com".to_string(),
         description_first_line: desc.to_string(),
+        description: desc.to_string(),
+        parents: vec![],
+        local_bookmarks: bookmarks.iter().map(ToString::to_string).collect(),
+        remote_bookmarks: vec![],
+        is_working_copy: false,
+        authored_at: Utc::now(),
+        committed_at: Utc::now(),
+    }
+}
+
+/// Create a log entry with full description (including body)
+pub fn make_log_entry_with_body(
+    first_line: &str,
+    body: &str,
+    commit_id: &str,
+    change_id: &str,
+    bookmarks: &[&str],
+) -> LogEntry {
+    let description = if body.is_empty() {
+        first_line.to_string()
+    } else {
+        format!("{first_line}\n\n{body}")
+    };
+    LogEntry {
+        commit_id: commit_id.to_string(),
+        change_id: change_id.to_string(),
+        author_name: "Test Author".to_string(),
+        author_email: "test@example.com".to_string(),
+        description_first_line: first_line.to_string(),
+        description,
         parents: vec![],
         local_bookmarks: bookmarks.iter().map(ToString::to_string).collect(),
         remote_bookmarks: vec![],

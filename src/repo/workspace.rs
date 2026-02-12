@@ -389,8 +389,8 @@ impl JjWorkspace {
         // Get parents
         let parents: Vec<String> = commit.parent_ids().iter().map(ObjectId::hex).collect();
 
-        // Get description first line
-        let description = commit.description();
+        // Get description (full and first line)
+        let description = commit.description().to_string();
         let description_first_line = description.lines().next().unwrap_or("").to_string();
 
         // Get timestamps
@@ -413,6 +413,7 @@ impl JjWorkspace {
             author_name: author.name.clone(),
             author_email: author.email.clone(),
             description_first_line,
+            description,
             parents,
             local_bookmarks,
             remote_bookmarks,

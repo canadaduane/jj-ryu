@@ -137,12 +137,14 @@ mod tests {
     use chrono::Utc;
 
     fn make_log_entry(commit_id: &str, change_id: &str, bookmarks: Vec<&str>) -> LogEntry {
+        let desc = format!("Commit {commit_id}");
         LogEntry {
             commit_id: commit_id.to_string(),
             change_id: change_id.to_string(),
             author_name: "Test".to_string(),
             author_email: "test@test.com".to_string(),
-            description_first_line: format!("Commit {commit_id}"),
+            description_first_line: desc.clone(),
+            description: desc,
             parents: vec!["parent".to_string()],
             local_bookmarks: bookmarks.into_iter().map(String::from).collect(),
             remote_bookmarks: vec![],

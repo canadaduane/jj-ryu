@@ -161,13 +161,28 @@ pub fn generate_pr_title(
     bookmark_name: &str,
     segments: &[NarrowedBookmarkSegment],
 ) -> Result<String> {
+    let (title, _body) = generate_pr_content(bookmark_name, segments)?;
+    Ok(title)
+}
+
+/// Generate PR title and body from the bookmark's commits
+///
+/// - **Title**: Uses the oldest (root) commit's first line, since that
+///   typically represents the primary intent of the change. Falls back to
+///   bookmark name if no description is available.
+/// - **Body**: Concatenates the body portions of all commits in root-to-tip
+///   order, separated by blank lines. Returns `None` if no commits have bodies.
+pub fn generate_pr_content(
+    bookmark_name: &str,
+    segments: &[NarrowedBookmarkSegment],
+) -> Result<(String, Option<String>)> {
     let segment = segments
         .iter()
         .find(|s| s.bookmark.name == bookmark_name)
         .ok_or_else(|| Error::BookmarkNotFound(bookmark_name.to_string()))?;
 
     if segment.changes.is_empty() {
-        return Ok(bookmark_name.to_string());
+        return Ok((bookmark_name.to_string(), None));
     }
 
     // Use the oldest (root) commit's description as the title
@@ -176,11 +191,42 @@ pub fn generate_pr_title(
         .changes
         .last()
         .expect("segment has at least one change");
-    let title = &root_commit.description_first_line;
-    if title.is_empty() {
-        Ok(bookmark_name.to_string())
+    let title = if root_commit.description_first_line.is_empty() {
+        bookmark_name.to_string()
     } else {
-        Ok(title.clone())
+        root_commit.description_first_line.clone()
+    };
+
+    // Collect bodies from all commits in root-to-tip order
+    // changes is newest-first, so reverse for root-to-tip
+    let bodies: Vec<&str> = segment
+        .changes
+        .iter()
+        .rev()
+        .filter_map(|c| extract_body(&c.description))
+        .collect();
+
+    let body = if bodies.is_empty() {
+        None
+    } else {
+        Some(bodies.join("\n\n"))
+    };
+
+    Ok((title, body))
+}
+
+/// Extract the body portion from a commit description.
+///
+/// The body is everything after the first line and the blank line separator.
+/// Returns `None` if there is no body or the body is empty.
+fn extract_body(description: &str) -> Option<&str> {
+    // Find the blank line separator after the first line
+    let body_start = description.find("\n\n").map(|i| i + 2)?;
+    let body = description[body_start..].trim();
+    if body.is_empty() {
+        None
+    } else {
+        Some(body)
     }
 }
 
@@ -231,6 +277,29 @@ mod tests {
             author_name: "Test".to_string(),
             author_email: "test@example.com".to_string(),
             description_first_line: desc.to_string(),
+            description: desc.to_string(),
+            parents: vec![],
+            local_bookmarks: bookmarks.iter().map(ToString::to_string).collect(),
+            remote_bookmarks: vec![],
+            is_working_copy: false,
+            authored_at: Utc::now(),
+            committed_at: Utc::now(),
+        }
+    }
+
+    fn make_log_entry_with_body(first_line: &str, body: &str, bookmarks: &[&str]) -> LogEntry {
+        let description = if body.is_empty() {
+            first_line.to_string()
+        } else {
+            format!("{first_line}\n\n{body}")
+        };
+        LogEntry {
+            commit_id: format!("{first_line}_commit"),
+            change_id: format!("{first_line}_change"),
+            author_name: "Test".to_string(),
+            author_email: "test@example.com".to_string(),
+            description_first_line: first_line.to_string(),
+            description,
             parents: vec![],
             local_bookmarks: bookmarks.iter().map(ToString::to_string).collect(),
             remote_bookmarks: vec![],
@@ -530,5 +599,137 @@ mod tests {
         assert!(!is_temporary_bookmark("feature"));
         assert!(!is_temporary_bookmark("my-feat"));
         assert!(!is_temporary_bookmark("gold-feature")); // contains "old" but not suffix
+    }
+
+    // === Body extraction tests ===
+
+    #[test]
+    fn test_extract_body_with_body() {
+        let body = extract_body("Title line\n\nThis is the body.");
+        assert_eq!(body, Some("This is the body."));
+    }
+
+    #[test]
+    fn test_extract_body_no_body() {
+        let body = extract_body("Title line only");
+        assert_eq!(body, None);
+    }
+
+    #[test]
+    fn test_extract_body_empty_body() {
+        let body = extract_body("Title line\n\n");
+        assert_eq!(body, None);
+    }
+
+    #[test]
+    fn test_extract_body_multi_paragraph() {
+        let body = extract_body("Title\n\nFirst paragraph.\n\nSecond paragraph.");
+        assert_eq!(body, Some("First paragraph.\n\nSecond paragraph."));
+    }
+
+    #[test]
+    fn test_extract_body_whitespace_only() {
+        let body = extract_body("Title\n\n   \n  ");
+        assert_eq!(body, None);
+    }
+
+    // === generate_pr_content tests ===
+
+    #[test]
+    fn test_generate_pr_content_single_commit_with_body() {
+        let segments = vec![NarrowedBookmarkSegment {
+            bookmark: make_bookmark("feat-a"),
+            changes: vec![make_log_entry_with_body(
+                "Add feature",
+                "This adds a new feature.\n\nIt does cool things.",
+                &["feat-a"],
+            )],
+        }];
+
+        let (title, body) = generate_pr_content("feat-a", &segments).unwrap();
+        assert_eq!(title, "Add feature");
+        assert_eq!(
+            body,
+            Some("This adds a new feature.\n\nIt does cool things.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_generate_pr_content_single_commit_no_body() {
+        let segments = vec![NarrowedBookmarkSegment {
+            bookmark: make_bookmark("feat-a"),
+            changes: vec![make_log_entry("Add feature", &["feat-a"])],
+        }];
+
+        let (title, body) = generate_pr_content("feat-a", &segments).unwrap();
+        assert_eq!(title, "Add feature");
+        assert_eq!(body, None);
+    }
+
+    #[test]
+    fn test_generate_pr_content_multiple_commits_concatenates_bodies() {
+        // changes[0] is newest, changes[last] is oldest (root)
+        let segments = vec![NarrowedBookmarkSegment {
+            bookmark: make_bookmark("feat-a"),
+            changes: vec![
+                make_log_entry_with_body("Fix typo", "Fixed a typo in docs.", &["feat-a"]), // newest
+                make_log_entry_with_body("Add tests", "Added unit tests.", &[]),            // middle
+                make_log_entry_with_body("Implement feature", "Initial implementation.", &[]), // oldest (root)
+            ],
+        }];
+
+        let (title, body) = generate_pr_content("feat-a", &segments).unwrap();
+        // Title comes from root commit
+        assert_eq!(title, "Implement feature");
+        // Body concatenates all bodies in root-to-tip order
+        assert_eq!(
+            body,
+            Some("Initial implementation.\n\nAdded unit tests.\n\nFixed a typo in docs.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_generate_pr_content_skips_commits_without_body() {
+        let segments = vec![NarrowedBookmarkSegment {
+            bookmark: make_bookmark("feat-a"),
+            changes: vec![
+                make_log_entry("Fix typo", &["feat-a"]),                                    // no body
+                make_log_entry_with_body("Add tests", "Added unit tests.", &[]),           // has body
+                make_log_entry("Implement feature", &[]),                                  // no body
+            ],
+        }];
+
+        let (title, body) = generate_pr_content("feat-a", &segments).unwrap();
+        assert_eq!(title, "Implement feature");
+        // Only the commit with a body is included
+        assert_eq!(body, Some("Added unit tests.".to_string()));
+    }
+
+    #[test]
+    fn test_generate_pr_content_all_commits_no_body() {
+        let segments = vec![NarrowedBookmarkSegment {
+            bookmark: make_bookmark("feat-a"),
+            changes: vec![
+                make_log_entry("Fix typo", &["feat-a"]),
+                make_log_entry("Add tests", &[]),
+                make_log_entry("Implement feature", &[]),
+            ],
+        }];
+
+        let (title, body) = generate_pr_content("feat-a", &segments).unwrap();
+        assert_eq!(title, "Implement feature");
+        assert_eq!(body, None);
+    }
+
+    #[test]
+    fn test_generate_pr_content_empty_changes_uses_bookmark_name() {
+        let segments = vec![NarrowedBookmarkSegment {
+            bookmark: make_bookmark("feat-a"),
+            changes: vec![],
+        }];
+
+        let (title, body) = generate_pr_content("feat-a", &segments).unwrap();
+        assert_eq!(title, "feat-a");
+        assert_eq!(body, None);
     }
 }

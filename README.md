@@ -131,6 +131,11 @@ ryu submit
 
 This pushes all tracked bookmarks in the current stack, creates PRs for any without one, updates PR base branches, and adds stack navigation comments. Untracked bookmarks are skipped with a warning.
 
+**PR title and body from commit descriptions:**
+- The PR title comes from the first line of the oldest (root) commit in the segment
+- The PR body is populated from the body of all commits in the segment (root-to-tip order), separated by blank lines
+- Commits with only a title (no body) are skipped in the PR body
+
 Each PR gets a comment showing the full stack:
 
 ```

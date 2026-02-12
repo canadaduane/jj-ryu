@@ -19,6 +19,7 @@ pub struct CreatePrCall {
     pub head: String,
     pub base: String,
     pub title: String,
+    pub body: Option<String>,
 }
 
 /// Call record for `update_pr_base`
@@ -195,12 +196,14 @@ impl PlatformService for MockPlatformService {
         head: &str,
         base: &str,
         title: &str,
+        body: Option<&str>,
         draft: bool,
     ) -> Result<PullRequest> {
         self.create_pr_calls.lock().unwrap().push(CreatePrCall {
             head: head.to_string(),
             base: base.to_string(),
             title: title.to_string(),
+            body: body.map(ToString::to_string),
         });
 
         // Check for injected error

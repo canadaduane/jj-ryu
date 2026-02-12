@@ -5,7 +5,7 @@
 use crate::error::{Error, Result};
 use crate::platform::PlatformService;
 use crate::submit::SubmissionAnalysis;
-use crate::submit::analysis::{generate_pr_title, get_base_branch};
+use crate::submit::analysis::{generate_pr_content, get_base_branch};
 use crate::types::{Bookmark, NarrowedBookmarkSegment, PullRequest};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -19,6 +19,8 @@ pub struct PrToCreate {
     pub base_branch: String,
     /// Generated PR title
     pub title: String,
+    /// Generated PR body (from commit descriptions)
+    pub body: Option<String>,
     /// Whether to create as draft
     pub draft: bool,
 }
@@ -76,6 +78,9 @@ impl std::fmt::Display for ExecutionStep {
                     "create PR {} → {} ({})",
                     create.bookmark.name, create.base_branch, create.title
                 )?;
+                if create.body.is_some() {
+                    write!(f, " [+body]")?;
+                }
                 if create.draft {
                     write!(f, " [draft]")?;
                 }
@@ -367,12 +372,13 @@ pub async fn create_submission_plan(
         } else {
             // PR doesn't exist - needs creation
             let base_branch = get_base_branch(&bookmark.name, segments, default_branch)?;
-            let title = generate_pr_title(&bookmark.name, segments)?;
+            let (title, body) = generate_pr_content(&bookmark.name, segments)?;
 
             prs_to_create.push(PrToCreate {
                 bookmark: (*bookmark).clone(),
                 base_branch,
                 title,
+                body,
                 draft: false,
             });
         }
@@ -728,6 +734,7 @@ mod tests {
             bookmark: bookmark.clone(),
             base_branch: base_branch.to_string(),
             title: format!("Add {}", bookmark.name),
+            body: None,
             draft: false,
         }
     }
@@ -757,12 +764,14 @@ mod tests {
             bookmark: make_bookmark("feat-a", false, false),
             base_branch: "main".to_string(),
             title: "Add feature A".to_string(),
+            body: Some("This is the PR body".to_string()),
             draft: false,
         };
 
         assert_eq!(pr_create.bookmark.name, "feat-a");
         assert_eq!(pr_create.base_branch, "main");
         assert_eq!(pr_create.title, "Add feature A");
+        assert_eq!(pr_create.body, Some("This is the PR body".to_string()));
         assert!(!pr_create.draft);
     }
 

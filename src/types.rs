@@ -32,6 +32,8 @@ pub struct LogEntry {
     pub author_email: String,
     /// First line of commit description
     pub description_first_line: String,
+    /// Full commit description (includes first line)
+    pub description: String,
     /// Parent commit IDs
     pub parents: Vec<String>,
     /// Local bookmarks pointing to this commit

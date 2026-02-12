@@ -55,6 +55,8 @@ struct CreateMrPayload {
     target_branch: String,
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     draft: Option<bool>,
 }
 
@@ -136,6 +138,7 @@ impl PlatformService for GitLabService {
         head: &str,
         base: &str,
         title: &str,
+        body: Option<&str>,
         draft: bool,
     ) -> Result<PullRequest> {
         debug!(head, base, draft, "creating MR");
@@ -148,6 +151,7 @@ impl PlatformService for GitLabService {
             source_branch: head.to_string(),
             target_branch: base.to_string(),
             title: title.to_string(),
+            description: body.map(ToString::to_string),
             draft: if draft { Some(true) } else { None },
         };
 

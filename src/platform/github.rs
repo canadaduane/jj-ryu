@@ -139,16 +139,18 @@ impl PlatformService for GitHubService {
         head: &str,
         base: &str,
         title: &str,
+        body: Option<&str>,
         draft: bool,
     ) -> Result<PullRequest> {
         debug!(head, base, draft, "creating PR");
-        let pr = self
-            .client
-            .pulls(&self.config.owner, &self.config.repo)
-            .create(title, head, base)
-            .draft(draft)
-            .send()
-            .await?;
+        let pulls = self.client.pulls(&self.config.owner, &self.config.repo);
+        let mut builder = pulls.create(title, head, base).draft(draft);
+
+        if let Some(body_text) = body {
+            builder = builder.body(body_text);
+        }
+
+        let pr = builder.send().await?;
 
         let result = pr_from_octocrab(&pr);
         debug!(pr_number = result.number, "created PR");

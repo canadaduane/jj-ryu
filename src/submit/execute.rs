@@ -128,6 +128,7 @@ pub async fn execute_create_pr(platform: &dyn PlatformService, create: &PrToCrea
             &create.bookmark.name,
             &create.base_branch,
             &create.title,
+            create.body.as_deref(),
             create.draft,
         )
         .await
@@ -576,6 +577,7 @@ mod tests {
             bookmark: bm,
             base_branch: "main".to_string(),
             title: "Add feature".to_string(),
+            body: None,
             draft: false,
         };
         let step = ExecutionStep::CreatePr(create);
@@ -590,6 +592,7 @@ mod tests {
             bookmark: bm,
             base_branch: "main".to_string(),
             title: "Add feature".to_string(),
+            body: Some("This is the body".to_string()),
             draft: true,
         };
         let step = ExecutionStep::CreatePr(create);
@@ -834,6 +837,7 @@ mod tests {
                     bookmark: bm,
                     base_branch: "main".to_string(),
                     title: "Add feat-a".to_string(),
+                    body: None,
                     draft: false,
                 }),
             ],

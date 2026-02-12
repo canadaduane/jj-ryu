@@ -25,21 +25,22 @@ pub trait PlatformService: Send + Sync {
     /// Find an existing open PR for a head branch
     async fn find_existing_pr(&self, head_branch: &str) -> Result<Option<PullRequest>>;
 
-    /// Create a new PR with default options (non-draft).
+    /// Create a new PR with default options (non-draft, no body).
     ///
     /// This is a convenience method that delegates to [`create_pr_with_options`]
-    /// with `draft: false`. Implementors should override `create_pr_with_options`,
-    /// not this method.
+    /// with `body: None` and `draft: false`. Implementors should override
+    /// `create_pr_with_options`, not this method.
     ///
     /// [`create_pr_with_options`]: Self::create_pr_with_options
     async fn create_pr(&self, head: &str, base: &str, title: &str) -> Result<PullRequest> {
-        self.create_pr_with_options(head, base, title, false).await
+        self.create_pr_with_options(head, base, title, None, false)
+            .await
     }
 
-    /// Create a new PR with explicit draft option.
+    /// Create a new PR with explicit body and draft options.
     ///
     /// Implementors must provide this method. The default [`create_pr`] method
-    /// delegates here with `draft: false`.
+    /// delegates here with `body: None` and `draft: false`.
     ///
     /// [`create_pr`]: Self::create_pr
     async fn create_pr_with_options(
@@ -47,6 +48,7 @@ pub trait PlatformService: Send + Sync {
         head: &str,
         base: &str,
         title: &str,
+        body: Option<&str>,
         draft: bool,
     ) -> Result<PullRequest>;
 
