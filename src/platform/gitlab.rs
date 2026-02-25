@@ -3,8 +3,8 @@
 use crate::error::{Error, Result};
 use crate::platform::PlatformService;
 use crate::types::{
-    MergeMethod, MergeReadiness, MergeResult, Platform, PlatformConfig, PrComment, PullRequest,
-    PullRequestDetails,
+    MergeMethod, MergeReadiness, MergeResult, Platform, PlatformConfig, PrComment, PrState,
+    PullRequest, PullRequestDetails,
 };
 use async_trait::async_trait;
 use reqwest::Client;
@@ -36,6 +36,40 @@ struct MrNote {
     id: u64,
     body: String,
     system: bool,
+}
+
+/// Extended MR details for merge operations
+#[derive(Deserialize)]
+struct MergeRequestDetails {
+    iid: u64,
+    title: String,
+    description: Option<String>,
+    state: String, // "opened", "closed", "merged"
+    #[serde(default)]
+    draft: bool,
+    merge_status: String, // "can_be_merged", "cannot_be_merged", etc.
+    web_url: String,
+    source_branch: String,
+    target_branch: String,
+}
+
+/// MR approvals response
+#[derive(Deserialize)]
+struct MrApprovals {
+    approved: bool,
+}
+
+/// Pipeline status
+#[derive(Deserialize)]
+struct Pipeline {
+    status: String, // "success", "failed", "running", "pending"
+}
+
+/// Merge response
+#[derive(Deserialize)]
+struct MergeResponse {
+    state: String,
+    merge_commit_sha: Option<String>,
 }
 
 impl From<MergeRequest> for PullRequest {
@@ -309,25 +343,195 @@ impl PlatformService for GitLabService {
     }
 
     // =========================================================================
-    // Merge-related methods (stubs - full implementation in Phase 4)
+    // Merge-related methods
     // =========================================================================
 
-    async fn get_pr_details(&self, _pr_number: u64) -> Result<PullRequestDetails> {
-        // TODO: Implement in Phase 4
-        Err(Error::GitLabApi(
-            "get_pr_details not yet implemented".to_string(),
-        ))
+    async fn get_pr_details(&self, pr_number: u64) -> Result<PullRequestDetails> {
+        debug!(mr_iid = pr_number, "getting MR details");
+
+        let url = self.api_url(&format!(
+            "/projects/{}/merge_requests/{}",
+            self.encoded_project(),
+            pr_number
+        ));
+
+        let mr: MergeRequestDetails = self
+            .client
+            .get(&url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .send()
+            .await?
+            .error_for_status()
+            .map_err(|e| Error::GitLabApi(e.to_string()))?
+            .json()
+            .await?;
+
+        let state = match mr.state.as_str() {
+            "opened" => PrState::Open,
+            "merged" => PrState::Merged,
+            _ => PrState::Closed,
+        };
+
+        let details = PullRequestDetails {
+            number: mr.iid,
+            title: mr.title,
+            body: mr.description,
+            state,
+            is_draft: mr.draft,
+            mergeable: Some(mr.merge_status == "can_be_merged"),
+            head_ref: mr.source_branch,
+            base_ref: mr.target_branch,
+            html_url: mr.web_url,
+        };
+
+        debug!(mr_iid = pr_number, state = ?details.state, "got MR details");
+        Ok(details)
     }
 
-    async fn check_merge_readiness(&self, _pr_number: u64) -> Result<MergeReadiness> {
-        // TODO: Implement in Phase 4
-        Err(Error::GitLabApi(
-            "check_merge_readiness not yet implemented".to_string(),
-        ))
+    async fn check_merge_readiness(&self, pr_number: u64) -> Result<MergeReadiness> {
+        debug!(mr_iid = pr_number, "checking merge readiness");
+
+        // Get MR details first
+        let details = self.get_pr_details(pr_number).await?;
+
+        // Check approvals
+        let approvals_url = self.api_url(&format!(
+            "/projects/{}/merge_requests/{}/approvals",
+            self.encoded_project(),
+            pr_number
+        ));
+
+        let is_approved = match self
+            .client
+            .get(&approvals_url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let approvals: MrApprovals = response.json().await.unwrap_or(MrApprovals { approved: false });
+                    approvals.approved
+                } else {
+                    // If approvals endpoint fails, assume not approved
+                    false
+                }
+            }
+            Err(_) => false,
+        };
+
+        // Check pipelines (most recent)
+        let pipelines_url = self.api_url(&format!(
+            "/projects/{}/merge_requests/{}/pipelines",
+            self.encoded_project(),
+            pr_number
+        ));
+
+        let ci_passed = match self
+            .client
+            .get(&pipelines_url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let pipelines: Vec<Pipeline> = response.json().await.unwrap_or_default();
+                    // No pipeline = not blocking, otherwise check most recent
+                    pipelines
+                        .first()
+                        .is_none_or(|p| p.status == "success")
+                } else {
+                    // If pipelines endpoint fails, assume passing (not blocking)
+                    true
+                }
+            }
+            Err(_) => true,
+        };
+
+        // Build blocking reasons
+        let mut blocking_reasons = Vec::new();
+        if details.is_draft {
+            blocking_reasons.push("MR is a draft".to_string());
+        }
+        if !is_approved {
+            blocking_reasons.push("Not approved".to_string());
+        }
+        if !ci_passed {
+            blocking_reasons.push("CI not passing".to_string());
+        }
+        if details.mergeable == Some(false) {
+            blocking_reasons.push("Has merge conflicts".to_string());
+        }
+
+        let readiness = MergeReadiness {
+            is_approved,
+            ci_passed,
+            is_mergeable: details.mergeable.unwrap_or(false),
+            is_draft: details.is_draft,
+            blocking_reasons,
+        };
+
+        debug!(
+            mr_iid = pr_number,
+            can_merge = readiness.can_merge(),
+            "checked merge readiness"
+        );
+        Ok(readiness)
     }
 
-    async fn merge_pr(&self, _pr_number: u64, _method: MergeMethod) -> Result<MergeResult> {
-        // TODO: Implement in Phase 4
-        Err(Error::GitLabApi("merge_pr not yet implemented".to_string()))
+    async fn merge_pr(&self, pr_number: u64, method: MergeMethod) -> Result<MergeResult> {
+        debug!(mr_iid = pr_number, %method, "merging MR");
+
+        // Get MR details for commit message (squash needs title/description)
+        let details = self.get_pr_details(pr_number).await?;
+
+        let url = self.api_url(&format!(
+            "/projects/{}/merge_requests/{}/merge",
+            self.encoded_project(),
+            pr_number
+        ));
+
+        let body = match method {
+            MergeMethod::Squash => serde_json::json!({
+                "squash": true,
+                "squash_commit_message": format!(
+                    "{} (!{})\n\n{}",
+                    details.title,
+                    pr_number,
+                    details.body.unwrap_or_default()
+                )
+            }),
+            MergeMethod::Merge => serde_json::json!({}),
+            MergeMethod::Rebase => serde_json::json!({
+                "merge_method": "rebase"
+            }),
+        };
+
+        let response: MergeResponse = self
+            .client
+            .put(&url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()
+            .map_err(|e| Error::GitLabApi(format!("Merge failed: {e}")))?
+            .json()
+            .await?;
+
+        let merge_result = MergeResult {
+            merged: response.state == "merged",
+            sha: response.merge_commit_sha,
+            message: None,
+        };
+
+        debug!(
+            mr_iid = pr_number,
+            merged = merge_result.merged,
+            sha = ?merge_result.sha,
+            "merge complete"
+        );
+        Ok(merge_result)
     }
 }

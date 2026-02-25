@@ -756,12 +756,12 @@ impl GitHubService {
 
 ---
 
-## Phase 4: GitLab Implementation 🔴
+## Phase 4: GitLab Implementation ✅
 
 ### Tasks
-- 🔴 Implement `get_pr_details()` in `GitLabService`
-- 🔴 Implement `check_merge_readiness()` in `GitLabService`
-- 🔴 Implement `merge_pr()` in `GitLabService`
+- ✅ Implement `get_pr_details()` in `GitLabService`
+- ✅ Implement `check_merge_readiness()` in `GitLabService`
+- ✅ Implement `merge_pr()` in `GitLabService`
 
 ### Notes
 
@@ -1859,7 +1859,7 @@ When implementing, include these files in context:
 | 2. Platform Trait | `platform/mod.rs`, `github.rs`, `gitlab.rs`, mock | ✅ | Stubs in place |
 | 7. Errors | `error.rs` | ✅ | `RebaseFailed` added |
 | 3. GitHub Impl | `platform/github.rs` | ✅ | Merge methods implemented |
-| 4. GitLab Impl | `platform/gitlab.rs` | 🔴 | Raw reqwest pattern |
+| 4. GitLab Impl | `platform/gitlab.rs` | ✅ | Merge methods implemented |
 | 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | 🔴 | Pure plan.rs first |
 | 6c. Rebase Helper | `repo/workspace.rs` | 🔴 | Depends on Phase 7 |
 | 8. Tests | `mock_platform.rs`, `integration_tests.rs`, `unit_tests.rs` | 🔴 | Mock extension needed |
