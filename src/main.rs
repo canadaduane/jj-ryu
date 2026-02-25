@@ -93,6 +93,21 @@ enum Commands {
         all: bool,
     },
 
+    /// Merge approved PRs in the stack
+    Merge {
+        /// Dry run - show what would be merged without making changes
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Preview plan and prompt for confirmation before executing
+        #[arg(long, short = 'c')]
+        confirm: bool,
+
+        /// Git remote to use
+        #[arg(long)]
+        remote: Option<String>,
+    },
+
     /// Authentication management
     Auth {
         #[command(subcommand)]
@@ -151,6 +166,7 @@ enum AuthAction {
 }
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
@@ -218,6 +234,18 @@ async fn main() -> Result<()> {
                     confirm,
                     all,
                 },
+            )
+            .await?;
+        }
+        Some(Commands::Merge {
+            dry_run,
+            confirm,
+            remote,
+        }) => {
+            cli::run_merge(
+                &path,
+                remote.as_deref(),
+                cli::MergeOptions { dry_run, confirm },
             )
             .await?;
         }

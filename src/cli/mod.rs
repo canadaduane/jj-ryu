@@ -5,6 +5,7 @@
 mod analyze;
 mod auth;
 mod context;
+mod merge;
 mod progress;
 pub mod style;
 mod submit;
@@ -14,6 +15,7 @@ mod untrack;
 
 pub use analyze::run_analyze;
 pub use auth::run_auth;
+pub use merge::{MergeOptions, run_merge};
 pub use progress::CliProgress;
 pub use submit::{SubmitOptions, SubmitScope, run_submit};
 pub use sync::{SyncOptions, run_sync};

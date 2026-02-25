@@ -969,11 +969,11 @@ async fn merge_pr(&self, pr_number: u64, method: MergeMethod) -> Result<MergeRes
 
 ---
 
-## Phase 5: CLI Command 🔴
+## Phase 5: CLI Command ✅
 
 ### Tasks
-- 🔴 Add `Commands::Merge` variant to `src/main.rs`
-- 🔴 Create `src/cli/merge.rs` module
+- ✅ Add `Commands::Merge` variant to `src/main.rs`
+- ✅ Create `src/cli/merge.rs` module
 
 ### CLI Design
 
@@ -995,8 +995,8 @@ Merge {
 ```
 
 **Default behavior**: Merge all consecutive mergeable PRs from the bottom of the stack. No `--all` flag needed (it's the default). No `--first` flag for v1 - users can use `--dry-run` to preview and GitHub UI for fine-grained control.
-- 🔴 Export from `src/cli/mod.rs`
-- 🔴 Wire up in `main()` match arm
+- ✅ Export from `src/cli/mod.rs`
+- ✅ Wire up in `main()` match arm
 
 ### CLI Definition
 
@@ -1281,13 +1281,13 @@ pub async fn execute_merge(
 
 ---
 
-## Phase 6b: CLI Orchestrator 🔴
+## Phase 6b: CLI Orchestrator ✅
 
 ### Tasks
-- 🔴 Implement `run_merge()` orchestrator in `src/cli/merge.rs`
-- 🔴 Implement `fetch_all_pr_info()` - batch data gathering
-- 🔴 Implement `report_merge_dry_run()` - dry run output
-- 🔴 Implement `post_merge_sync()` - fetch, rebase, re-submit
+- ✅ Implement `run_merge()` orchestrator in `src/cli/merge.rs`
+- ✅ Implement `fetch_all_pr_info()` - batch data gathering
+- ✅ Implement `report_merge_dry_run()` - dry run output
+- ✅ Implement `post_merge_sync()` - fetch, rebase, re-submit
 
 ### Architecture
 
@@ -1931,8 +1931,8 @@ When implementing, include these files in context:
 | 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | ✅ | Pure plan + execute |
 | 6c. Rebase Helper | `repo/workspace.rs` | ✅ | rebase + delete bookmark |
 | 8. Tests | `mock_platform.rs`, `integration_tests.rs`, `unit_tests.rs` | ✅ | Mock extension complete |
-| 5. CLI Command | `main.rs`, `cli/mod.rs` | 🔴 | Wire up command |
-| 6b. CLI Orchestrator | `cli/merge.rs` (new) | 🔴 | Final integration |
+| 5. CLI Command | `main.rs`, `cli/mod.rs` | ✅ | Command wired up |
+| 6b. CLI Orchestrator | `cli/merge.rs` (new) | ✅ | Full orchestrator |
 | 9. Docs | `README.md`, `AGENTS.md`, `merge/AGENTS.md` (new) | 🔴 | After everything works |
 
 **Total new files**: 5
