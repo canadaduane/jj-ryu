@@ -355,6 +355,40 @@ struct CombinedStatus { state: String }
 let url = format!(...);
 ```
 
+### 18. Clippy Lints for Pure Functions (Phase 6 Verified)
+
+When creating pure planning modules, several clippy lints commonly trigger:
+
+**`implicit_hasher`** - Generalize `HashMap` parameters over `BuildHasher`:
+```rust
+// ❌ Clippy warns
+pub fn create_merge_plan(pr_info: &HashMap<String, PrInfo>) -> MergePlan
+
+// ✅ Correct
+use std::hash::BuildHasher;
+pub fn create_merge_plan<S: BuildHasher>(
+    pr_info: &HashMap<String, PrInfo, S>,
+) -> MergePlan
+```
+
+**`doc_markdown`** - Type names in doc comments need backticks:
+```rust
+// ❌ Clippy warns
+//! 2. Plan - create MergePlan (pure, testable)
+
+// ✅ Correct
+//! 2. Plan - create `MergePlan` (pure, testable)
+```
+
+**`missing_const_for_fn`** - Simple predicate methods should be `const`:
+```rust
+// ❌ Clippy warns
+pub fn is_success(&self) -> bool { self.failed_bookmark.is_none() }
+
+// ✅ Correct
+pub const fn is_success(&self) -> bool { self.failed_bookmark.is_none() }
+```
+
 ---
 
 ## Phase 0: Extract Command Context (Refactor) ✅
@@ -992,7 +1026,7 @@ Merge {
 
 ---
 
-## Phase 6: Merge Module (Following submit/ Pattern) 🔴
+## Phase 6: Merge Module (Following submit/ Pattern) ✅
 
 ### Structure
 
@@ -1004,10 +1038,10 @@ src/merge/
 ```
 
 ### Tasks
-- 🔴 Create `src/merge/mod.rs` with re-exports
-- 🔴 Create `src/merge/plan.rs` with `MergePlan`, `MergeStep`, `create_merge_plan()`
-- 🔴 Create `src/merge/execute.rs` with `execute_merge()`
-- 🔴 Export from `src/lib.rs`
+- ✅ Create `src/merge/mod.rs` with re-exports
+- ✅ Create `src/merge/plan.rs` with `MergePlan`, `MergeStep`, `create_merge_plan()`
+- ✅ Create `src/merge/execute.rs` with `execute_merge()`
+- ✅ Export from `src/lib.rs`
 
 ### `src/merge/mod.rs`
 
@@ -1194,10 +1228,12 @@ pub struct MergeExecutionResult {
 }
 
 /// Execute the merge plan (EFFECTFUL)
+///
+/// Note: PR cache cleanup is handled by the CLI orchestrator, not here.
+/// This keeps execute_merge() focused on just the merge operations.
 pub async fn execute_merge(
     plan: &MergePlan,
     platform: &dyn PlatformService,
-    pr_cache: &mut PrCache,
     progress: &dyn ProgressCallback,
 ) -> Result<MergeExecutionResult> {
     let mut result = MergeExecutionResult::default();
@@ -1214,9 +1250,7 @@ pub async fn execute_merge(
                             merge_result.sha.as_deref().unwrap_or("(no sha)")
                         )).await;
                         result.merged_bookmarks.push(bookmark.clone());
-                        
-                        // Clear from PR cache
-                        pr_cache.remove(bookmark);
+                        // Note: PR cache cleanup happens in orchestrator
                     }
                     Ok(merge_result) => {
                         // Merge API returned but didn't merge
@@ -1401,12 +1435,11 @@ pub async fn run_merge(
     let merge_result = execute_merge(
         &merge_plan, 
         ctx.platform.as_ref(), 
-        &mut ctx.pr_cache,
         &progress
     ).await?;
     
     // Post-merge cleanup and sync
-    if !merge_result.merged_bookmarks.is_empty() {
+    if merge_result.bottom_merged() {
         // Clean up merged bookmarks
         for bookmark in &merge_result.merged_bookmarks {
             ctx.pr_cache.remove(bookmark);
@@ -1860,7 +1893,7 @@ When implementing, include these files in context:
 | 7. Errors | `error.rs` | ✅ | `RebaseFailed` added |
 | 3. GitHub Impl | `platform/github.rs` | ✅ | Merge methods implemented |
 | 4. GitLab Impl | `platform/gitlab.rs` | ✅ | Merge methods implemented |
-| 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | 🔴 | Pure plan.rs first |
+| 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | ✅ | Pure plan + execute |
 | 6c. Rebase Helper | `repo/workspace.rs` | 🔴 | Depends on Phase 7 |
 | 8. Tests | `mock_platform.rs`, `integration_tests.rs`, `unit_tests.rs` | 🔴 | Mock extension needed |
 | 5. CLI Command | `main.rs`, `cli/mod.rs` | 🔴 | Wire up command |
