@@ -295,6 +295,66 @@ Response: { "state": "success" | "pending" | "failure" | "error", ... }
 
 This is ~10 lines of code following the existing GitLab pattern (raw reqwest). Good dry-run UX is worth it - users want to see *why* a PR can't merge.
 
+### 17. octocrab Type Handling (Implementation Verified)
+
+During Phase 3 implementation, several type handling issues were discovered:
+
+**octocrab uses enums, not strings:**
+```rust
+// ❌ Wrong - these are enums, not strings
+pr.state.as_deref() == Some("open")
+review.state.as_str() == "APPROVED"
+
+// ✅ Correct - pattern match on enum variants
+match pr.state {
+    Some(octocrab::models::IssueState::Open) => PrState::Open,
+    Some(octocrab::models::IssueState::Closed) if pr.merged_at.is_some() => PrState::Merged,
+    Some(_) | None => PrState::Closed,  // IssueState is #[non_exhaustive]
+}
+
+// ✅ Correct - compare enum variants
+reviews.items.iter().any(|r| {
+    r.state.as_ref().is_some_and(|s| *s == octocrab::models::pulls::ReviewState::Approved)
+})
+```
+
+**`Merge.merged` is `bool`, not `Option<bool>`:**
+```rust
+// ❌ Wrong
+merged: result.merged.unwrap_or(false),
+
+// ✅ Correct
+merged: result.merged,
+```
+
+**Builder lifetime issues:**
+```rust
+// ❌ Wrong - temporary freed while borrowed
+let mut builder = self.client.pulls(...).merge(pr_number).method(method);
+if condition { builder = builder.title(...); }  // Error!
+
+// ✅ Correct - complete chain in each branch
+let pulls = self.client.pulls(&self.config.owner, &self.config.repo);
+let result = if method == MergeMethod::Squash {
+    pulls.merge(pr_number).method(m).title(...).send().await
+} else {
+    pulls.merge(pr_number).method(m).send().await
+}?;
+```
+
+**Clippy: items_after_statements:**
+```rust
+// ❌ Wrong - struct after let statement
+let url = format!(...);
+#[derive(Deserialize)]
+struct CombinedStatus { state: String }
+
+// ✅ Correct - struct before statements
+#[derive(Deserialize)]
+struct CombinedStatus { state: String }
+let url = format!(...);
+```
+
 ---
 
 ## Phase 0: Extract Command Context (Refactor) ✅
@@ -524,12 +584,12 @@ pub trait PlatformService: Send + Sync {
 
 ---
 
-## Phase 3: GitHub Implementation 🔴
+## Phase 3: GitHub Implementation ✅
 
 ### Tasks
-- 🔴 Implement `get_pr_details()` in `GitHubService`
-- 🔴 Implement `check_merge_readiness()` in `GitHubService`
-- 🔴 Implement `merge_pr()` in `GitHubService`
+- ✅ Implement `get_pr_details()` in `GitHubService`
+- ✅ Implement `check_merge_readiness()` in `GitHubService`
+- ✅ Implement `merge_pr()` in `GitHubService`
 
 ### octocrab API Mapping
 
@@ -703,6 +763,10 @@ impl GitHubService {
 - 🔴 Implement `check_merge_readiness()` in `GitLabService`
 - 🔴 Implement `merge_pr()` in `GitLabService`
 
+### Notes
+
+GitLab already has `client: reqwest::Client`, `token: String`, and `host: String` stored in the service struct - no changes needed to the struct itself (unlike GitHub which needed these added).
+
 ### API Endpoints Used
 
 ```
@@ -710,16 +774,163 @@ GET /projects/{id}/merge_requests/{mr_iid}
   -> title, description, state, draft, merge_status
 
 GET /projects/{id}/merge_requests/{mr_iid}/approvals
-  -> Approval status
+  -> Approval status (approved: bool, or check approvals_left)
 
 GET /projects/{id}/merge_requests/{mr_iid}/pipelines
-  -> CI status
+  -> CI status (look for status: "success" on most recent)
 
 PUT /projects/{id}/merge_requests/{mr_iid}/merge
   {
     "squash": true,
-    "squash_commit_message": "{title}\n\n{description}"
+    "squash_commit_message": "{title} (!{iid})\n\n{description}"
   }
+```
+
+### Implementation Sketches
+
+**Response types needed:**
+```rust
+#[derive(Deserialize)]
+struct MergeRequestDetails {
+    iid: u64,
+    title: String,
+    description: Option<String>,
+    state: String,  // "opened", "closed", "merged"
+    draft: bool,
+    merge_status: String,  // "can_be_merged", "cannot_be_merged", etc.
+    web_url: String,
+    source_branch: String,
+    target_branch: String,
+}
+
+#[derive(Deserialize)]
+struct MrApprovals {
+    approved: bool,
+}
+
+#[derive(Deserialize)]
+struct Pipeline {
+    status: String,  // "success", "failed", "running", "pending"
+}
+
+#[derive(Deserialize)]
+struct MergeResponse {
+    iid: u64,
+    state: String,
+    merge_commit_sha: Option<String>,
+}
+```
+
+**`get_pr_details()`:**
+```rust
+async fn get_pr_details(&self, pr_number: u64) -> Result<PullRequestDetails> {
+    let url = self.api_url(&format!(
+        "/projects/{}/merge_requests/{}",
+        self.encoded_project(), pr_number
+    ));
+    
+    let mr: MergeRequestDetails = self.client
+        .get(&url)
+        .header("PRIVATE-TOKEN", &self.token)
+        .send().await?
+        .error_for_status()?
+        .json().await?;
+    
+    let state = match mr.state.as_str() {
+        "opened" => PrState::Open,
+        "merged" => PrState::Merged,
+        _ => PrState::Closed,
+    };
+    
+    Ok(PullRequestDetails {
+        number: mr.iid,
+        title: mr.title,
+        body: mr.description,
+        state,
+        is_draft: mr.draft,
+        mergeable: Some(mr.merge_status == "can_be_merged"),
+        head_ref: mr.source_branch,
+        base_ref: mr.target_branch,
+        html_url: mr.web_url,
+    })
+}
+```
+
+**`check_merge_readiness()`:**
+```rust
+async fn check_merge_readiness(&self, pr_number: u64) -> Result<MergeReadiness> {
+    let details = self.get_pr_details(pr_number).await?;
+    
+    // Check approvals
+    let approvals_url = self.api_url(&format!(
+        "/projects/{}/merge_requests/{}/approvals",
+        self.encoded_project(), pr_number
+    ));
+    let approvals: MrApprovals = self.client
+        .get(&approvals_url)
+        .header("PRIVATE-TOKEN", &self.token)
+        .send().await?
+        .json().await?;
+    
+    // Check pipelines (most recent)
+    let pipelines_url = self.api_url(&format!(
+        "/projects/{}/merge_requests/{}/pipelines",
+        self.encoded_project(), pr_number
+    ));
+    let pipelines: Vec<Pipeline> = self.client
+        .get(&pipelines_url)
+        .header("PRIVATE-TOKEN", &self.token)
+        .send().await?
+        .json().await?;
+    let ci_passed = pipelines.first()
+        .map(|p| p.status == "success")
+        .unwrap_or(true);  // No pipeline = not blocking
+    
+    // Build blocking reasons...
+}
+```
+
+**`merge_pr()`:**
+```rust
+async fn merge_pr(&self, pr_number: u64, method: MergeMethod) -> Result<MergeResult> {
+    let details = self.get_pr_details(pr_number).await?;
+    
+    let url = self.api_url(&format!(
+        "/projects/{}/merge_requests/{}/merge",
+        self.encoded_project(), pr_number
+    ));
+    
+    let body = match method {
+        MergeMethod::Squash => serde_json::json!({
+            "squash": true,
+            "squash_commit_message": format!(
+                "{} (!{})\n\n{}",
+                details.title,
+                pr_number,
+                details.body.unwrap_or_default()
+            )
+        }),
+        MergeMethod::Merge => serde_json::json!({}),
+        MergeMethod::Rebase => serde_json::json!({
+            "merge_method": "fast_forward"  // GitLab's rebase equivalent
+        }),
+    };
+    
+    let response: MergeResponse = self.client
+        .put(&url)
+        .header("PRIVATE-TOKEN", &self.token)
+        .json(&body)
+        .send().await?
+        .error_for_status()
+        .map_err(|e| Error::GitLabApi(format!("Merge failed: {e}")))?
+        .json().await?;
+    
+    Ok(MergeResult {
+        merged: response.state == "merged",
+        sha: response.merge_commit_sha,
+        message: None,
+    })
+}
 ```
 
 ---
@@ -1647,7 +1858,7 @@ When implementing, include these files in context:
 | 1. Types | `types.rs` | ✅ | Research verified |
 | 2. Platform Trait | `platform/mod.rs`, `github.rs`, `gitlab.rs`, mock | ✅ | Stubs in place |
 | 7. Errors | `error.rs` | ✅ | `RebaseFailed` added |
-| 3. GitHub Impl | `platform/github.rs` | 🔴 | octocrab API confirmed |
+| 3. GitHub Impl | `platform/github.rs` | ✅ | Merge methods implemented |
 | 4. GitLab Impl | `platform/gitlab.rs` | 🔴 | Raw reqwest pattern |
 | 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | 🔴 | Pure plan.rs first |
 | 6c. Rebase Helper | `repo/workspace.rs` | 🔴 | Depends on Phase 7 |

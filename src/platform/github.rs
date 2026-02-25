@@ -3,11 +3,12 @@
 use crate::error::{Error, Result};
 use crate::platform::PlatformService;
 use crate::types::{
-    MergeMethod, MergeReadiness, MergeResult, Platform, PlatformConfig, PrComment, PullRequest,
-    PullRequestDetails,
+    MergeMethod, MergeReadiness, MergeResult, Platform, PlatformConfig, PrComment, PrState,
+    PullRequest, PullRequestDetails,
 };
 use async_trait::async_trait;
 use octocrab::Octocrab;
+use reqwest::Client;
 use serde::Deserialize;
 use tracing::debug;
 
@@ -66,6 +67,12 @@ impl From<GraphQlPullRequest> for PullRequest {
 pub struct GitHubService {
     client: Octocrab,
     config: PlatformConfig,
+    /// Token for raw HTTP requests (CI status checking)
+    token: String,
+    /// HTTP client for raw requests (CI status checking)
+    http_client: Client,
+    /// API host for raw requests
+    api_host: String,
 }
 
 impl GitHubService {
@@ -73,16 +80,24 @@ impl GitHubService {
     pub fn new(token: &str, owner: String, repo: String, host: Option<String>) -> Result<Self> {
         let mut builder = Octocrab::builder().personal_token(token.to_string());
 
-        if let Some(ref h) = host {
+        let api_host = if let Some(ref h) = host {
             let base_url = format!("https://{h}/api/v3");
             builder = builder
                 .base_uri(&base_url)
                 .map_err(|e| Error::GitHubApi(e.to_string()))?;
-        }
+            format!("{h}/api/v3")
+        } else {
+            "api.github.com".to_string()
+        };
 
         let client = builder
             .build()
             .map_err(|e| Error::GitHubApi(e.to_string()))?;
+
+        let http_client = Client::builder()
+            .user_agent("jj-ryu")
+            .build()
+            .map_err(|e| Error::GitHubApi(format!("Failed to create HTTP client: {e}")))?;
 
         Ok(Self {
             client,
@@ -92,7 +107,53 @@ impl GitHubService {
                 repo,
                 host,
             },
+            token: token.to_string(),
+            http_client,
+            api_host,
         })
+    }
+
+    /// Check combined commit status for CI
+    ///
+    /// Uses the combined status endpoint to check if all status checks have passed.
+    async fn check_ci_status(&self, ref_name: &str) -> Result<bool> {
+        #[derive(Deserialize)]
+        struct CombinedStatus {
+            state: String,
+        }
+
+        let url = format!(
+            "https://{}/repos/{}/{}/commits/{}/status",
+            self.api_host, self.config.owner, self.config.repo, ref_name
+        );
+
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await
+            .map_err(|e| Error::GitHubApi(format!("Failed to fetch CI status: {e}")))?;
+
+        if !response.status().is_success() {
+            // If we can't get status, assume it's not blocking (no statuses configured)
+            debug!(
+                status = %response.status(),
+                "CI status check returned non-success, assuming no statuses configured"
+            );
+            return Ok(true);
+        }
+
+        let status: CombinedStatus = response
+            .json()
+            .await
+            .map_err(|e| Error::GitHubApi(format!("Failed to parse CI status: {e}")))?;
+
+        // "success" means all checks passed, "pending" means still running
+        // Empty state (no statuses) also counts as success
+        Ok(status.state == "success" || status.state.is_empty())
     }
 }
 
@@ -279,25 +340,147 @@ impl PlatformService for GitHubService {
     }
 
     // =========================================================================
-    // Merge-related methods (stubs - full implementation in Phase 3)
+    // Merge-related methods
     // =========================================================================
 
-    async fn get_pr_details(&self, _pr_number: u64) -> Result<PullRequestDetails> {
-        // TODO: Implement in Phase 3
-        Err(Error::GitHubApi(
-            "get_pr_details not yet implemented".to_string(),
-        ))
+    async fn get_pr_details(&self, pr_number: u64) -> Result<PullRequestDetails> {
+        debug!(pr_number, "getting PR details");
+
+        let pr = self
+            .client
+            .pulls(&self.config.owner, &self.config.repo)
+            .get(pr_number)
+            .await?;
+
+        // Determine PR state from GitHub's state field and merged_at
+        let state = match pr.state {
+            Some(octocrab::models::IssueState::Open) => PrState::Open,
+            Some(octocrab::models::IssueState::Closed) if pr.merged_at.is_some() => PrState::Merged,
+            // IssueState is non-exhaustive, so use wildcard for Closed and any future variants
+            Some(_) | None => PrState::Closed,
+        };
+
+        let details = PullRequestDetails {
+            number: pr.number,
+            title: pr.title.clone().unwrap_or_default(),
+            body: pr.body.clone(),
+            state,
+            is_draft: pr.draft.unwrap_or(false),
+            mergeable: pr.mergeable,
+            head_ref: pr.head.ref_field.clone(),
+            base_ref: pr.base.ref_field.clone(),
+            html_url: pr
+                .html_url
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+        };
+
+        debug!(pr_number, state = ?details.state, "got PR details");
+        Ok(details)
     }
 
-    async fn check_merge_readiness(&self, _pr_number: u64) -> Result<MergeReadiness> {
-        // TODO: Implement in Phase 3
-        Err(Error::GitHubApi(
-            "check_merge_readiness not yet implemented".to_string(),
-        ))
+    async fn check_merge_readiness(&self, pr_number: u64) -> Result<MergeReadiness> {
+        debug!(pr_number, "checking merge readiness");
+
+        // Get PR details first
+        let details = self.get_pr_details(pr_number).await?;
+
+        // Check reviews for approval
+        let reviews = self
+            .client
+            .pulls(&self.config.owner, &self.config.repo)
+            .list_reviews(pr_number)
+            .send()
+            .await?;
+
+        // Look for at least one APPROVED review
+        let is_approved = reviews.items.iter().any(|r| {
+            r.state
+                .as_ref()
+                .is_some_and(|s| *s == octocrab::models::pulls::ReviewState::Approved)
+        });
+
+        // Check CI status
+        let ci_passed = self
+            .check_ci_status(&details.head_ref)
+            .await
+            .unwrap_or(true); // If we can't check, assume passing
+
+        // Build blocking reasons
+        let mut blocking_reasons = Vec::new();
+        if details.is_draft {
+            blocking_reasons.push("PR is a draft".to_string());
+        }
+        if !is_approved {
+            blocking_reasons.push("Not approved".to_string());
+        }
+        if !ci_passed {
+            blocking_reasons.push("CI not passing".to_string());
+        }
+        if details.mergeable == Some(false) {
+            blocking_reasons.push("Has merge conflicts".to_string());
+        }
+        if details.mergeable.is_none() {
+            blocking_reasons.push("Merge status unknown (still computing)".to_string());
+        }
+
+        let readiness = MergeReadiness {
+            is_approved,
+            ci_passed,
+            is_mergeable: details.mergeable.unwrap_or(false),
+            is_draft: details.is_draft,
+            blocking_reasons,
+        };
+
+        debug!(
+            pr_number,
+            can_merge = readiness.can_merge(),
+            "checked merge readiness"
+        );
+        Ok(readiness)
     }
 
-    async fn merge_pr(&self, _pr_number: u64, _method: MergeMethod) -> Result<MergeResult> {
-        // TODO: Implement in Phase 3
-        Err(Error::GitHubApi("merge_pr not yet implemented".to_string()))
+    async fn merge_pr(&self, pr_number: u64, method: MergeMethod) -> Result<MergeResult> {
+        debug!(pr_number, %method, "merging PR");
+
+        // Get PR details for commit message (squash needs title/body)
+        let details = self.get_pr_details(pr_number).await?;
+
+        let octocrab_method = match method {
+            MergeMethod::Squash => octocrab::params::pulls::MergeMethod::Squash,
+            MergeMethod::Merge => octocrab::params::pulls::MergeMethod::Merge,
+            MergeMethod::Rebase => octocrab::params::pulls::MergeMethod::Rebase,
+        };
+
+        let pulls = self.client.pulls(&self.config.owner, &self.config.repo);
+
+        // Build and send merge request
+        // For squash, use PR title and body as commit message
+        let result = if method == MergeMethod::Squash {
+            let mut builder = pulls.merge(pr_number).method(octocrab_method);
+            builder = builder.title(format!("{} (#{})", details.title, pr_number));
+            if let Some(ref body) = details.body {
+                builder = builder.message(body);
+            }
+            builder.send().await
+        } else {
+            pulls.merge(pr_number).method(octocrab_method).send().await
+        }
+        .map_err(|e| Error::GitHubApi(format!("Merge failed: {e}")))?;
+
+        let merge_result = MergeResult {
+            merged: result.merged,
+            sha: result.sha,
+            message: result.message,
+        };
+
+        debug!(
+            pr_number,
+            merged = merge_result.merged,
+            sha = ?merge_result.sha,
+            "merge complete"
+        );
+        Ok(merge_result)
     }
 }
