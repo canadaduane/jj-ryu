@@ -1708,7 +1708,7 @@ RebaseFailed(String),
 
 ---
 
-## Phase 8: Tests 🔴
+## Phase 8: Tests ✅
 
 ### Unit Tests (Pure Planning Function)
 - 🔴 Test `create_merge_plan()` with single mergeable PR
@@ -1930,7 +1930,7 @@ When implementing, include these files in context:
 | 4. GitLab Impl | `platform/gitlab.rs` | ✅ | Merge methods implemented |
 | 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | ✅ | Pure plan + execute |
 | 6c. Rebase Helper | `repo/workspace.rs` | ✅ | rebase + delete bookmark |
-| 8. Tests | `mock_platform.rs`, `integration_tests.rs`, `unit_tests.rs` | 🔴 | Mock extension needed |
+| 8. Tests | `mock_platform.rs`, `integration_tests.rs`, `unit_tests.rs` | ✅ | Mock extension complete |
 | 5. CLI Command | `main.rs`, `cli/mod.rs` | 🔴 | Wire up command |
 | 6b. CLI Orchestrator | `cli/merge.rs` (new) | 🔴 | Final integration |
 | 9. Docs | `README.md`, `AGENTS.md`, `merge/AGENTS.md` (new) | 🔴 | After everything works |

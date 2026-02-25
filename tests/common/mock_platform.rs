@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::platform::PlatformService;
 use jj_ryu::types::{
-    MergeMethod, MergeReadiness, MergeResult, PlatformConfig, PrComment, PullRequest,
+    MergeMethod, MergeReadiness, MergeResult, PlatformConfig, PrComment, PrState, PullRequest,
     PullRequestDetails,
 };
 use std::collections::HashMap;
@@ -39,6 +39,13 @@ pub struct CreateCommentCall {
     pub body: String,
 }
 
+/// Call record for `merge_pr`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergePrCall {
+    pub pr_number: u64,
+    pub method: MergeMethod,
+}
+
 /// Simple mock platform service for testing
 ///
 /// This manually implements `PlatformService` rather than using mockall,
@@ -64,6 +71,16 @@ pub struct MockPlatformService {
     error_on_find_pr: Mutex<Option<String>>,
     error_on_create_pr: Mutex<Option<String>>,
     error_on_update_base: Mutex<Option<String>>,
+    // Merge-related response maps
+    pr_details_responses: Mutex<HashMap<u64, PullRequestDetails>>,
+    merge_readiness_responses: Mutex<HashMap<u64, MergeReadiness>>,
+    merge_responses: Mutex<HashMap<u64, MergeResult>>,
+    // Merge-related call tracking
+    get_pr_details_calls: Mutex<Vec<u64>>,
+    check_merge_readiness_calls: Mutex<Vec<u64>>,
+    merge_pr_calls: Mutex<Vec<MergePrCall>>,
+    // Merge-related error injection
+    error_on_merge_pr: Mutex<Option<String>>,
 }
 
 impl MockPlatformService {
@@ -82,6 +99,13 @@ impl MockPlatformService {
             error_on_find_pr: Mutex::new(None),
             error_on_create_pr: Mutex::new(None),
             error_on_update_base: Mutex::new(None),
+            pr_details_responses: Mutex::new(HashMap::new()),
+            merge_readiness_responses: Mutex::new(HashMap::new()),
+            merge_responses: Mutex::new(HashMap::new()),
+            get_pr_details_calls: Mutex::new(Vec::new()),
+            check_merge_readiness_calls: Mutex::new(Vec::new()),
+            merge_pr_calls: Mutex::new(Vec::new()),
+            error_on_merge_pr: Mutex::new(None),
         }
     }
 
@@ -102,6 +126,11 @@ impl MockPlatformService {
         *self.error_on_update_base.lock().unwrap() = Some(msg.to_string());
     }
 
+    /// Make `merge_pr` return an error
+    pub fn fail_merge_pr(&self, msg: &str) {
+        *self.error_on_merge_pr.lock().unwrap() = Some(msg.to_string());
+    }
+
     /// Set the response for `find_existing_pr` for a specific branch
     pub fn set_find_pr_response(&self, branch: &str, pr: Option<PullRequest>) {
         self.find_pr_responses
@@ -116,6 +145,130 @@ impl MockPlatformService {
             .lock()
             .unwrap()
             .insert(pr_number, comments);
+    }
+
+    /// Set the response for `get_pr_details` for a specific PR
+    pub fn set_pr_details_response(&self, pr_number: u64, details: PullRequestDetails) {
+        self.pr_details_responses
+            .lock()
+            .unwrap()
+            .insert(pr_number, details);
+    }
+
+    /// Set the response for `check_merge_readiness` for a specific PR
+    pub fn set_merge_readiness_response(&self, pr_number: u64, readiness: MergeReadiness) {
+        self.merge_readiness_responses
+            .lock()
+            .unwrap()
+            .insert(pr_number, readiness);
+    }
+
+    /// Set the response for `merge_pr` for a specific PR
+    pub fn set_merge_response(&self, pr_number: u64, result: MergeResult) {
+        self.merge_responses
+            .lock()
+            .unwrap()
+            .insert(pr_number, result);
+    }
+
+    /// Helper to set up a mergeable PR with all required responses
+    pub fn setup_mergeable_pr(&self, pr_number: u64, bookmark: &str, title: &str) {
+        // Set find_pr response
+        self.set_find_pr_response(
+            bookmark,
+            Some(PullRequest {
+                number: pr_number,
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+                base_ref: "main".to_string(),
+                head_ref: bookmark.to_string(),
+                title: title.to_string(),
+                node_id: Some(format!("PR_node_{pr_number}")),
+                is_draft: false,
+            }),
+        );
+
+        // Set PR details
+        self.set_pr_details_response(
+            pr_number,
+            PullRequestDetails {
+                number: pr_number,
+                title: title.to_string(),
+                body: Some("PR body".to_string()),
+                state: PrState::Open,
+                is_draft: false,
+                mergeable: Some(true),
+                head_ref: bookmark.to_string(),
+                base_ref: "main".to_string(),
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+            },
+        );
+
+        // Set merge readiness (approved and ready)
+        self.set_merge_readiness_response(
+            pr_number,
+            MergeReadiness {
+                is_approved: true,
+                ci_passed: true,
+                is_mergeable: true,
+                is_draft: false,
+                blocking_reasons: vec![],
+            },
+        );
+
+        // Set merge response (success)
+        self.set_merge_response(
+            pr_number,
+            MergeResult {
+                merged: true,
+                sha: Some(format!("merged_sha_{pr_number}")),
+                message: None,
+            },
+        );
+    }
+
+    /// Helper to set up a non-mergeable PR (e.g., not approved)
+    pub fn setup_blocked_pr(&self, pr_number: u64, bookmark: &str, title: &str, reasons: Vec<String>) {
+        // Set find_pr response
+        self.set_find_pr_response(
+            bookmark,
+            Some(PullRequest {
+                number: pr_number,
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+                base_ref: "main".to_string(),
+                head_ref: bookmark.to_string(),
+                title: title.to_string(),
+                node_id: Some(format!("PR_node_{pr_number}")),
+                is_draft: false,
+            }),
+        );
+
+        // Set PR details
+        self.set_pr_details_response(
+            pr_number,
+            PullRequestDetails {
+                number: pr_number,
+                title: title.to_string(),
+                body: Some("PR body".to_string()),
+                state: PrState::Open,
+                is_draft: false,
+                mergeable: Some(true),
+                head_ref: bookmark.to_string(),
+                base_ref: "main".to_string(),
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+            },
+        );
+
+        // Set merge readiness (blocked)
+        self.set_merge_readiness_response(
+            pr_number,
+            MergeReadiness {
+                is_approved: false,
+                ci_passed: true,
+                is_mergeable: true,
+                is_draft: false,
+                blocking_reasons: reasons,
+            },
+        );
     }
 
     // === Call verification methods ===
@@ -143,6 +296,21 @@ impl MockPlatformService {
     /// Get all `list_pr_comments` calls
     pub fn get_list_comments_calls(&self) -> Vec<u64> {
         self.list_comments_calls.lock().unwrap().clone()
+    }
+
+    /// Get all `get_pr_details` calls
+    pub fn get_pr_details_calls(&self) -> Vec<u64> {
+        self.get_pr_details_calls.lock().unwrap().clone()
+    }
+
+    /// Get all `check_merge_readiness` calls
+    pub fn get_merge_readiness_calls(&self) -> Vec<u64> {
+        self.check_merge_readiness_calls.lock().unwrap().clone()
+    }
+
+    /// Get all `merge_pr` calls
+    pub fn get_merge_pr_calls(&self) -> Vec<MergePrCall> {
+        self.merge_pr_calls.lock().unwrap().clone()
     }
 
     /// Assert that `create_pr` was called with specific head and base
@@ -174,6 +342,38 @@ impl MockPlatformService {
                 "Expected find_existing_pr({branch}) but got: {calls:?}"
             );
         }
+    }
+
+    /// Assert that `merge_pr` was called for a specific PR
+    pub fn assert_merge_called(&self, pr_number: u64) {
+        let calls = self.get_merge_pr_calls();
+        assert!(
+            calls.iter().any(|c| c.pr_number == pr_number),
+            "Expected merge_pr({pr_number}) but got: {calls:?}"
+        );
+    }
+
+    /// Assert that `merge_pr` was NOT called for a specific PR
+    pub fn assert_merge_not_called(&self, pr_number: u64) {
+        let calls = self.get_merge_pr_calls();
+        assert!(
+            !calls.iter().any(|c| c.pr_number == pr_number),
+            "Expected merge_pr({pr_number}) NOT to be called but it was: {calls:?}"
+        );
+    }
+
+    /// Assert that `merge_pr` was called with a specific method
+    pub fn assert_merge_called_with_method(&self, pr_number: u64, method: MergeMethod) {
+        let calls = self.get_merge_pr_calls();
+        assert!(
+            calls.iter().any(|c| c.pr_number == pr_number && c.method == method),
+            "Expected merge_pr({pr_number}, {method:?}) but got: {calls:?}"
+        );
+    }
+
+    /// Get count of merge_pr calls
+    pub fn merge_call_count(&self) -> usize {
+        self.merge_pr_calls.lock().unwrap().len()
     }
 }
 
@@ -292,27 +492,50 @@ impl PlatformService for MockPlatformService {
     }
 
     // =========================================================================
-    // Merge-related methods (stubs for testing)
+    // Merge-related methods
     // =========================================================================
 
-    async fn get_pr_details(&self, _pr_number: u64) -> Result<PullRequestDetails> {
-        // TODO: Add response injection when needed for merge tests
-        Err(Error::Platform(
-            "get_pr_details not yet implemented in mock".to_string(),
-        ))
+    async fn get_pr_details(&self, pr_number: u64) -> Result<PullRequestDetails> {
+        self.get_pr_details_calls.lock().unwrap().push(pr_number);
+
+        let responses = self.pr_details_responses.lock().unwrap();
+        responses.get(&pr_number).cloned().ok_or_else(|| {
+            Error::Platform(format!(
+                "get_pr_details: no response configured for PR #{pr_number}"
+            ))
+        })
     }
 
-    async fn check_merge_readiness(&self, _pr_number: u64) -> Result<MergeReadiness> {
-        // TODO: Add response injection when needed for merge tests
-        Err(Error::Platform(
-            "check_merge_readiness not yet implemented in mock".to_string(),
-        ))
+    async fn check_merge_readiness(&self, pr_number: u64) -> Result<MergeReadiness> {
+        self.check_merge_readiness_calls
+            .lock()
+            .unwrap()
+            .push(pr_number);
+
+        let responses = self.merge_readiness_responses.lock().unwrap();
+        responses.get(&pr_number).cloned().ok_or_else(|| {
+            Error::Platform(format!(
+                "check_merge_readiness: no response configured for PR #{pr_number}"
+            ))
+        })
     }
 
-    async fn merge_pr(&self, _pr_number: u64, _method: MergeMethod) -> Result<MergeResult> {
-        // TODO: Add response injection when needed for merge tests
-        Err(Error::Platform(
-            "merge_pr not yet implemented in mock".to_string(),
-        ))
+    async fn merge_pr(&self, pr_number: u64, method: MergeMethod) -> Result<MergeResult> {
+        self.merge_pr_calls
+            .lock()
+            .unwrap()
+            .push(MergePrCall { pr_number, method });
+
+        // Check for injected error
+        if let Some(msg) = self.error_on_merge_pr.lock().unwrap().as_ref() {
+            return Err(Error::Platform(msg.clone()));
+        }
+
+        let responses = self.merge_responses.lock().unwrap();
+        responses.get(&pr_number).cloned().ok_or_else(|| {
+            Error::Platform(format!(
+                "merge_pr: no response configured for PR #{pr_number}"
+            ))
+        })
     }
 }
