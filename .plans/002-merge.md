@@ -221,9 +221,48 @@ If `execute_submission()` fails after successful merge+rebase:
 - PRs just need base updates (minor)
 - Warn user and suggest `ryu submit` to complete
 
+### 12. Borrow Checker with Context Structs
+
+When `CommandContext` stores data that returns borrowed references (like `tracking.tracked_names()` returning `Vec<&str>`), subsequent mutations to other fields (like `workspace.git_fetch()`) cause borrow conflicts. **Solution**: Collect borrowed data into owned `Vec<String>` before mutations:
+
+```rust
+// Collect into owned strings to avoid borrow checker issues with later mutations
+let tracked_names: Vec<String> = ctx.tracked_names().into_iter().map(String::from).collect();
+```
+
+This also changes the filter syntax from `contains(&s.bookmark.name.as_str())` to `contains(&s.bookmark.name)`.
+
+### 13. CommandContext is Internal Only
+
+`CommandContext` is only used within the `cli` module and should NOT be publicly exported from `cli/mod.rs`. Use `mod context;` not `pub use context::CommandContext;`.
+
+### 14. Display Trait for API Parameters
+
+Types like `MergeMethod` should implement `Display` to produce lowercase strings suitable for API parameters:
+
+```rust
+impl std::fmt::Display for MergeMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Squash => write!(f, "squash"),
+            // ...
+        }
+    }
+}
+```
+
+### 15. Mark Future-Use Code with allow(dead_code)
+
+When adding methods that will be used by future phases (like `has_tracked_bookmarks()`), add `#[allow(dead_code)]` with a comment:
+
+```rust
+#[allow(dead_code)] // Will be used by merge command
+pub fn has_tracked_bookmarks(&self) -> bool { ... }
+```
+
 ---
 
-## Phase 0: Extract Command Context (Refactor) 🔴
+## Phase 0: Extract Command Context (Refactor) ✅
 
 ### Rationale
 
@@ -353,14 +392,14 @@ pub async fn run_submit(path: &Path, bookmark: Option<&str>, remote: Option<&str
 
 ---
 
-## Phase 1: Extend Type System 🔴
+## Phase 1: Extend Type System ✅
 
 ### Tasks
-- 🔴 Add `PullRequestDetails` struct to `src/types.rs`
-- 🔴 Add `PrState` enum to `src/types.rs`
-- 🔴 Add `MergeReadiness` struct to `src/types.rs`
-- 🔴 Add `MergeResult` struct to `src/types.rs`
-- 🔴 Add `MergeMethod` enum to `src/types.rs`
+- ✅ Add `PullRequestDetails` struct to `src/types.rs`
+- ✅ Add `PrState` enum to `src/types.rs`
+- ✅ Add `MergeReadiness` struct to `src/types.rs`
+- ✅ Add `MergeResult` struct to `src/types.rs`
+- ✅ Add `MergeMethod` enum to `src/types.rs`
 
 ### Type Definitions
 
@@ -898,9 +937,10 @@ pub async fn run_merge(
     let analysis = analyze_submission(&graph, bookmark)?;
     
     // Filter to tracked bookmarks
-    let tracked_names = ctx.tracked_names();
+    // Collect into owned strings to avoid borrow checker issues with later mutations
+    let tracked_names: Vec<String> = ctx.tracked_names().into_iter().map(String::from).collect();
     let tracked_segments: Vec<_> = analysis.segments.iter()
-        .filter(|s| tracked_names.contains(&s.bookmark.name.as_str()))
+        .filter(|s| tracked_names.contains(&s.bookmark.name))
         .collect();
     
     if tracked_segments.is_empty() {
@@ -1034,9 +1074,10 @@ async fn post_merge_sync(
         let analysis = analyze_submission(&graph, None)?;
         
         // Filter to tracked bookmarks (important!)
-        let tracked_names = ctx.tracked_names();
+        // Use owned strings since we may have mutated ctx earlier
+        let tracked_names: Vec<String> = ctx.tracked_names().into_iter().map(String::from).collect();
         let mut filtered_analysis = analysis.clone();
-        filtered_analysis.segments.retain(|s| tracked_names.contains(&s.bookmark.name.as_str()));
+        filtered_analysis.segments.retain(|s| tracked_names.contains(&s.bookmark.name));
         
         // Create submission plan and execute
         let submit_plan = create_submission_plan(
@@ -1314,7 +1355,7 @@ When implementing, include these files in context:
 | Phase | Files Modified | Status |
 |-------|----------------|--------|
 | 0. Command Context | `cli/context.rs` (new), `cli/submit.rs`, `cli/sync.rs`, `cli/mod.rs` | ✅ |
-| 1. Types | `types.rs` | 🔴 |
+| 1. Types | `types.rs` | ✅ |
 | 2. Platform Trait | `platform/mod.rs` | 🔴 |
 | 3. GitHub Impl | `platform/github.rs` | 🔴 |
 | 4. GitLab Impl | `platform/gitlab.rs` | 🔴 |

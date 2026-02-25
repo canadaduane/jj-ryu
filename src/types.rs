@@ -154,3 +154,110 @@ pub struct PlatformConfig {
     /// Custom host (None for github.com/gitlab.com)
     pub host: Option<String>,
 }
+
+// =============================================================================
+// Merge-related types (for ryu merge command)
+// =============================================================================
+
+/// PR state (open, closed, merged)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PrState {
+    /// PR is open and can be merged
+    Open,
+    /// PR was closed without merging
+    Closed,
+    /// PR was merged
+    Merged,
+}
+
+impl std::fmt::Display for PrState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Open => write!(f, "open"),
+            Self::Closed => write!(f, "closed"),
+            Self::Merged => write!(f, "merged"),
+        }
+    }
+}
+
+/// Extended PR details for merge operations
+///
+/// This contains more information than `PullRequest`, including the body
+/// and merge status, which are needed for merge operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullRequestDetails {
+    /// PR/MR number
+    pub number: u64,
+    /// PR/MR title
+    pub title: String,
+    /// PR/MR body/description
+    pub body: Option<String>,
+    /// Current state of the PR
+    pub state: PrState,
+    /// Whether PR is a draft
+    pub is_draft: bool,
+    /// Whether PR can be merged (no conflicts)
+    pub mergeable: Option<bool>,
+    /// Head branch name
+    pub head_ref: String,
+    /// Base branch name
+    pub base_ref: String,
+    /// Web URL for the PR/MR
+    pub html_url: String,
+}
+
+/// Merge readiness check result
+///
+/// Captures all the conditions that must be met for a PR to be merged.
+#[derive(Debug, Clone)]
+pub struct MergeReadiness {
+    /// Whether the PR has been approved by reviewers
+    pub is_approved: bool,
+    /// Whether CI checks have passed
+    pub ci_passed: bool,
+    /// Whether the PR can be merged (no conflicts)
+    pub is_mergeable: bool,
+    /// Whether the PR is a draft
+    pub is_draft: bool,
+    /// Human-readable reasons why the PR cannot be merged
+    pub blocking_reasons: Vec<String>,
+}
+
+impl MergeReadiness {
+    /// Check if all conditions are met for merging
+    pub fn can_merge(&self) -> bool {
+        self.is_approved && self.ci_passed && self.is_mergeable && !self.is_draft
+    }
+}
+
+/// Result of a merge operation
+#[derive(Debug, Clone)]
+pub struct MergeResult {
+    /// Whether the merge was successful
+    pub merged: bool,
+    /// The SHA of the merge commit (if successful)
+    pub sha: Option<String>,
+    /// Message from the merge operation (especially on failure)
+    pub message: Option<String>,
+}
+
+/// Merge strategy/method
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeMethod {
+    /// Squash all commits into one
+    Squash,
+    /// Create a merge commit
+    Merge,
+    /// Rebase commits onto base branch
+    Rebase,
+}
+
+impl std::fmt::Display for MergeMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Squash => write!(f, "squash"),
+            Self::Merge => write!(f, "merge"),
+            Self::Rebase => write!(f, "rebase"),
+        }
+    }
+}
