@@ -155,6 +155,33 @@ ryu sync
 
 This fetches from remote and syncs the current stack.
 
+### Merging
+
+After PRs are approved, merge them from the bottom of your stack:
+
+```sh
+ryu merge
+```
+
+This merges all consecutive approved PRs starting from the bottom of your stack, then:
+- Deletes the merged local bookmarks
+- Fetches the updated trunk
+- Rebases the remaining stack onto the new trunk
+- Updates the remaining PRs to point to their new bases
+
+```sh
+ryu merge --dry-run    # Preview what would be merged
+ryu merge --confirm    # Preview and prompt before merging
+```
+
+**Merge requirements:**
+- PR must be approved
+- CI must be passing
+- No merge conflicts
+- Not a draft PR
+
+If any PR in the stack doesn't meet these requirements, merging stops at that PR and the remaining stack is left intact.
+
 ## Workflow example
 
 ```sh
@@ -232,9 +259,10 @@ ryu [OPTIONS] [COMMAND]
 
 Commands:
   submit   Submit tracked bookmarks as PRs
+  sync     Sync current stack with remote
+  merge    Merge approved PRs in the stack
   track    Track bookmarks for submission
   untrack  Stop tracking bookmarks
-  sync     Sync all stacks with remote
   auth     Authentication management
 
 Options:
@@ -293,6 +321,17 @@ Options:
       --remote <REMOTE>  Git remote (default: origin)
 ```
 
+### merge
+
+```
+ryu merge [OPTIONS]
+
+Options:
+      --dry-run          Preview what would be merged
+  -c, --confirm          Preview and prompt before merging
+      --remote <REMOTE>  Git remote (default: origin)
+```
+
 ### auth
 
 ```
@@ -316,6 +355,7 @@ Ryu's CLI is inspired by Graphite. Here's how commands map:
 | `gt submit --publish` | `ryu submit --publish` |
 | `gt submit --confirm` | `ryu submit --confirm` |
 | `gt sync` | `ryu sync` |
+| `gt merge` | `ryu merge` |
 | `gt branch create` | `jj bookmark create` |
 | `gt restack` | `jj rebase` |
 

@@ -804,3 +804,391 @@ mod sync_test {
         }
     }
 }
+
+mod merge_plan_test {
+    use crate::common::make_linear_stack;
+    use jj_ryu::merge::{create_merge_plan, MergePlanOptions, MergeStep, PrInfo};
+    use jj_ryu::submit::analyze_submission;
+    use jj_ryu::types::{MergeMethod, MergeReadiness, PrState, PullRequestDetails};
+    use std::collections::HashMap;
+
+    /// Helper to create a mergeable PrInfo
+    fn make_mergeable_pr_info(bookmark: &str, pr_number: u64, title: &str) -> PrInfo {
+        PrInfo {
+            bookmark: bookmark.to_string(),
+            details: PullRequestDetails {
+                number: pr_number,
+                title: title.to_string(),
+                body: Some(format!("PR body for {bookmark}")),
+                state: PrState::Open,
+                is_draft: false,
+                mergeable: Some(true),
+                head_ref: bookmark.to_string(),
+                base_ref: "main".to_string(),
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+            },
+            readiness: MergeReadiness {
+                is_approved: true,
+                ci_passed: true,
+                is_mergeable: true,
+                is_draft: false,
+                blocking_reasons: vec![],
+            },
+        }
+    }
+
+    /// Helper to create a blocked PrInfo
+    fn make_blocked_pr_info(
+        bookmark: &str,
+        pr_number: u64,
+        title: &str,
+        reasons: Vec<String>,
+    ) -> PrInfo {
+        PrInfo {
+            bookmark: bookmark.to_string(),
+            details: PullRequestDetails {
+                number: pr_number,
+                title: title.to_string(),
+                body: Some(format!("PR body for {bookmark}")),
+                state: PrState::Open,
+                is_draft: false,
+                mergeable: Some(true),
+                head_ref: bookmark.to_string(),
+                base_ref: "main".to_string(),
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+            },
+            readiness: MergeReadiness {
+                is_approved: false,
+                ci_passed: true,
+                is_mergeable: true,
+                is_draft: false,
+                blocking_reasons: reasons,
+            },
+        }
+    }
+
+    #[test]
+    fn test_create_merge_plan_single_mergeable() {
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info("feat-a", 1, "Add feature A"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(!plan.is_empty());
+        assert_eq!(plan.merge_count(), 1);
+        assert!(plan.has_mergeable);
+        assert_eq!(plan.bookmarks_to_clear, vec!["feat-a"]);
+        assert!(plan.rebase_target.is_none()); // Nothing left to rebase
+
+        // Verify the step details
+        match &plan.steps[0] {
+            MergeStep::Merge {
+                bookmark,
+                pr_number,
+                pr_title,
+                method,
+            } => {
+                assert_eq!(bookmark, "feat-a");
+                assert_eq!(*pr_number, 1);
+                assert_eq!(pr_title, "Add feature A");
+                assert_eq!(*method, MergeMethod::Squash);
+            }
+            MergeStep::Skip { .. } => panic!("Expected Merge step, got Skip"),
+        }
+    }
+
+    #[test]
+    fn test_create_merge_plan_multiple_consecutive_mergeable() {
+        let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info("feat-a", 1, "Add feature A"),
+        );
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_mergeable_pr_info("feat-b", 2, "Add feature B"),
+        );
+        pr_info.insert(
+            "feat-c".to_string(),
+            make_mergeable_pr_info("feat-c", 3, "Add feature C"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert_eq!(plan.merge_count(), 3);
+        assert!(plan.has_mergeable);
+        assert_eq!(
+            plan.bookmarks_to_clear,
+            vec!["feat-a", "feat-b", "feat-c"]
+        );
+        assert!(plan.rebase_target.is_none());
+
+        // All should be Merge steps
+        for step in &plan.steps {
+            assert!(matches!(step, MergeStep::Merge { .. }));
+        }
+    }
+
+    #[test]
+    fn test_create_merge_plan_blocked_pr_stops_chain() {
+        let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info("feat-a", 1, "Add feature A"),
+        );
+        // feat-b is blocked
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_blocked_pr_info("feat-b", 2, "Add feature B", vec!["Not approved".to_string()]),
+        );
+        pr_info.insert(
+            "feat-c".to_string(),
+            make_mergeable_pr_info("feat-c", 3, "Add feature C"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        // Only feat-a should be merged, feat-b is skipped
+        assert_eq!(plan.merge_count(), 1);
+        assert!(plan.has_mergeable);
+        assert_eq!(plan.bookmarks_to_clear, vec!["feat-a"]);
+        assert_eq!(plan.rebase_target, Some("feat-b".to_string()));
+
+        // Verify steps
+        assert_eq!(plan.steps.len(), 2);
+        assert!(matches!(&plan.steps[0], MergeStep::Merge { bookmark, .. } if bookmark == "feat-a"));
+        assert!(
+            matches!(&plan.steps[1], MergeStep::Skip { bookmark, reasons, .. } if bookmark == "feat-b" && reasons.contains(&"Not approved".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_create_merge_plan_first_pr_blocked() {
+        let graph = make_linear_stack(&["feat-a", "feat-b"]);
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        // feat-a is blocked - nothing can merge
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_blocked_pr_info(
+                "feat-a",
+                1,
+                "Add feature A",
+                vec!["CI not passing".to_string()],
+            ),
+        );
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_mergeable_pr_info("feat-b", 2, "Add feature B"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(plan.is_empty());
+        assert_eq!(plan.merge_count(), 0);
+        assert!(!plan.has_mergeable);
+        assert!(plan.bookmarks_to_clear.is_empty());
+        assert_eq!(plan.rebase_target, Some("feat-a".to_string()));
+
+        // Should have one Skip step
+        assert_eq!(plan.steps.len(), 1);
+        assert!(matches!(&plan.steps[0], MergeStep::Skip { bookmark, .. } if bookmark == "feat-a"));
+    }
+
+    #[test]
+    fn test_create_merge_plan_with_target_bookmark() {
+        let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info("feat-a", 1, "Add feature A"),
+        );
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_mergeable_pr_info("feat-b", 2, "Add feature B"),
+        );
+        pr_info.insert(
+            "feat-c".to_string(),
+            make_mergeable_pr_info("feat-c", 3, "Add feature C"),
+        );
+
+        // Only merge up to feat-b
+        let options = MergePlanOptions {
+            target_bookmark: Some("feat-b".to_string()),
+        };
+        let plan = create_merge_plan(&analysis, &pr_info, &options);
+
+        // Should merge feat-a and feat-b, but not feat-c
+        assert_eq!(plan.merge_count(), 2);
+        assert_eq!(plan.bookmarks_to_clear, vec!["feat-a", "feat-b"]);
+        assert_eq!(plan.rebase_target, Some("feat-c".to_string()));
+    }
+
+    #[test]
+    fn test_create_merge_plan_empty_when_no_prs() {
+        let graph = make_linear_stack(&["feat-a", "feat-b"]);
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
+
+        // No PR info provided
+        let pr_info: HashMap<String, PrInfo> = HashMap::new();
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(plan.is_empty());
+        assert_eq!(plan.merge_count(), 0);
+        assert!(!plan.has_mergeable);
+        assert!(plan.steps.is_empty());
+    }
+
+    #[test]
+    fn test_create_merge_plan_partial_pr_info() {
+        // Only some bookmarks have PRs
+        let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        // Only feat-b has a PR
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_mergeable_pr_info("feat-b", 2, "Add feature B"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        // feat-a has no PR, so it's skipped. feat-b can merge.
+        // But wait - the plan processes in stack order and skips bookmarks without PRs
+        assert_eq!(plan.merge_count(), 1);
+        assert_eq!(plan.bookmarks_to_clear, vec!["feat-b"]);
+    }
+
+    #[test]
+    fn test_create_merge_plan_draft_pr_blocks() {
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        let mut info = make_mergeable_pr_info("feat-a", 1, "Add feature A");
+        // Make it a draft
+        info.details.is_draft = true;
+        info.readiness.is_draft = true;
+        info.readiness.blocking_reasons = vec!["PR is a draft".to_string()];
+        pr_info.insert("feat-a".to_string(), info);
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(plan.is_empty());
+        assert!(!plan.has_mergeable);
+        assert!(matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"PR is a draft".to_string())));
+    }
+
+    #[test]
+    fn test_create_merge_plan_not_approved_blocks() {
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_blocked_pr_info("feat-a", 1, "Add feature A", vec!["Not approved".to_string()]),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(plan.is_empty());
+        assert!(matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"Not approved".to_string())));
+    }
+
+    #[test]
+    fn test_create_merge_plan_ci_failing_blocks() {
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        let mut info = make_mergeable_pr_info("feat-a", 1, "Add feature A");
+        info.readiness.ci_passed = false;
+        info.readiness.blocking_reasons = vec!["CI not passing".to_string()];
+        pr_info.insert("feat-a".to_string(), info);
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(plan.is_empty());
+        assert!(matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"CI not passing".to_string())));
+    }
+
+    #[test]
+    fn test_create_merge_plan_merge_conflicts_blocks() {
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        let mut info = make_mergeable_pr_info("feat-a", 1, "Add feature A");
+        info.readiness.is_mergeable = false;
+        info.readiness.blocking_reasons = vec!["Has merge conflicts".to_string()];
+        pr_info.insert("feat-a".to_string(), info);
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(plan.is_empty());
+        assert!(matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"Has merge conflicts".to_string())));
+    }
+
+    #[test]
+    fn test_merge_plan_is_empty_with_only_skips() {
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_blocked_pr_info("feat-a", 1, "Add feature A", vec!["Not approved".to_string()]),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        // is_empty() should return true when there are only Skip steps
+        assert!(plan.is_empty());
+        // But steps is not empty - it contains Skip steps
+        assert!(!plan.steps.is_empty());
+    }
+
+    #[test]
+    fn test_merge_plan_merge_count() {
+        let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info("feat-a", 1, "Add feature A"),
+        );
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_blocked_pr_info("feat-b", 2, "Add feature B", vec!["Not approved".to_string()]),
+        );
+        pr_info.insert(
+            "feat-c".to_string(),
+            make_mergeable_pr_info("feat-c", 3, "Add feature C"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        // merge_count should only count Merge steps, not Skip steps
+        assert_eq!(plan.merge_count(), 1);
+        assert_eq!(plan.steps.len(), 2); // 1 Merge + 1 Skip
+    }
+}
