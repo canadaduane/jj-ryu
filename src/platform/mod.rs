@@ -13,7 +13,10 @@ pub use github::GitHubService;
 pub use gitlab::GitLabService;
 
 use crate::error::Result;
-use crate::types::{PlatformConfig, PrComment, PullRequest};
+use crate::types::{
+    MergeMethod, MergeReadiness, MergeResult, PlatformConfig, PrComment, PullRequest,
+    PullRequestDetails,
+};
 use async_trait::async_trait;
 
 /// Platform service trait for PR/MR operations
@@ -69,4 +72,26 @@ pub trait PlatformService: Send + Sync {
 
     /// Get the platform configuration
     fn config(&self) -> &PlatformConfig;
+
+    // =========================================================================
+    // Merge-related methods (for ryu merge command)
+    // =========================================================================
+
+    /// Get full PR details including body and state
+    ///
+    /// Returns extended PR information needed for merge operations,
+    /// including the PR body (for commit message) and merge status.
+    async fn get_pr_details(&self, pr_number: u64) -> Result<PullRequestDetails>;
+
+    /// Check if PR is ready to merge
+    ///
+    /// Checks approval status, CI status, and merge conflicts.
+    /// Returns a `MergeReadiness` struct with all conditions and blocking reasons.
+    async fn check_merge_readiness(&self, pr_number: u64) -> Result<MergeReadiness>;
+
+    /// Merge a PR with the specified method
+    ///
+    /// For squash merges, the PR title is used as commit title and
+    /// the PR body is used as commit message.
+    async fn merge_pr(&self, pr_number: u64, method: MergeMethod) -> Result<MergeResult>;
 }

@@ -8,7 +8,10 @@
 use async_trait::async_trait;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::platform::PlatformService;
-use jj_ryu::types::{PlatformConfig, PrComment, PullRequest};
+use jj_ryu::types::{
+    MergeMethod, MergeReadiness, MergeResult, PlatformConfig, PrComment, PullRequest,
+    PullRequestDetails,
+};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -286,5 +289,30 @@ impl PlatformService for MockPlatformService {
 
     fn config(&self) -> &PlatformConfig {
         &self.config
+    }
+
+    // =========================================================================
+    // Merge-related methods (stubs for testing)
+    // =========================================================================
+
+    async fn get_pr_details(&self, _pr_number: u64) -> Result<PullRequestDetails> {
+        // TODO: Add response injection when needed for merge tests
+        Err(Error::Platform(
+            "get_pr_details not yet implemented in mock".to_string(),
+        ))
+    }
+
+    async fn check_merge_readiness(&self, _pr_number: u64) -> Result<MergeReadiness> {
+        // TODO: Add response injection when needed for merge tests
+        Err(Error::Platform(
+            "check_merge_readiness not yet implemented in mock".to_string(),
+        ))
+    }
+
+    async fn merge_pr(&self, _pr_number: u64, _method: MergeMethod) -> Result<MergeResult> {
+        // TODO: Add response injection when needed for merge tests
+        Err(Error::Platform(
+            "merge_pr not yet implemented in mock".to_string(),
+        ))
     }
 }

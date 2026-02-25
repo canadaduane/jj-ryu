@@ -152,21 +152,26 @@ This prevents stale cache entries for merged bookmarks.
 
 ### 3. Partial Merge Handling
 
-With `--all`, if PRs #1, #2, #3 merge but #4 fails:
+With default behavior (merge all), if PRs #1, #2, #3 merge but #4 fails:
 - PRs #1-3 are committed (cannot undo)
 - Must clearly report what succeeded vs failed
-- Must still fetch/rebase after partial success
-- Track `merged_bookmarks: Vec<String>` for cache cleanup
+- Track `merged_bookmarks: Vec<String>` for cleanup
 
-### 4. Merge Method Platform Differences
+**Rebase condition**: Only perform rebase if the *bottom-most* PR in the stack merged successfully. If PR #1 fails, don't rebase at all. If PRs #1-2 succeed and #3 fails, rebase because trunk has changed.
 
+Post-merge cleanup for each successfully merged bookmark:
+1. Clear PR cache entry (`pr_cache.remove()`)
+2. Delete local bookmark (`jj bookmark delete`)
+3. Untrack bookmark (`tracking.untrack()`)
+
+### 4. Merge Method: Squash-Only for v1
+
+For v1, only squash merge is supported. This simplifies implementation and matches the most common stacked PR workflow. The `MergeMethod` enum exists for future extensibility but only `Squash` is used.
+
+```rust
+// v1: Always use squash
+let method = MergeMethod::Squash;
 ```
-MergeMethod::Squash  → GitHub: "squash"    | GitLab: squash: true
-MergeMethod::Merge   → GitHub: "merge"     | GitLab: merge_method: "merge"
-MergeMethod::Rebase  → GitHub: "rebase"    | GitLab: merge_method: "fast_forward" (different semantics)
-```
-
-Squash is the primary use case; rebase mapping differences are acceptable for MVP.
 
 ### 5. GraphQL Optimization (Future)
 
@@ -259,6 +264,36 @@ When adding methods that will be used by future phases (like `has_tracked_bookma
 #[allow(dead_code)] // Will be used by merge command
 pub fn has_tracked_bookmarks(&self) -> bool { ... }
 ```
+
+### 16. octocrab Merge API Confirmed (Research Verified)
+
+The `octocrab` crate (already a dependency) has full merge support via `pulls().merge()`:
+
+```rust
+let result = octocrab.pulls("owner", "repo").merge(pr_number)
+    .title("commit title")      // For squash: PR title
+    .message("commit message")  // For squash: PR body
+    .sha("abc123")              // Optional: safety check
+    .method(params::pulls::MergeMethod::Squash)
+    .send()
+    .await?;
+```
+
+**Key points:**
+- `octocrab::params::pulls::MergeMethod` has `Squash`, `Merge`, `Rebase` variants
+- Map our `MergeMethod` enum to octocrab's enum (simple match)
+- For squash merges, pass PR title via `.title()` and PR body via `.message()`
+- `pulls().list_reviews()` available for approval checking
+- `pulls().get()` returns `mergeable` field for conflict detection
+
+**CI status checking** requires raw HTTP since octocrab doesn't expose the combined status endpoint directly. Use the combined status endpoint:
+
+```
+GET /repos/{owner}/{repo}/commits/{ref}/status
+Response: { "state": "success" | "pending" | "failure" | "error", ... }
+```
+
+This is ~10 lines of code following the existing GitLab pattern (raw reqwest). Good dry-run UX is worth it - users want to see *why* a PR can't merge.
 
 ---
 
@@ -461,12 +496,12 @@ pub enum MergeMethod {
 
 ---
 
-## Phase 2: Extend Platform Trait 🔴
+## Phase 2: Extend Platform Trait ✅
 
 ### Tasks
-- 🔴 Add `get_pr_details()` method to `PlatformService` trait
-- 🔴 Add `check_merge_readiness()` method to `PlatformService` trait
-- 🔴 Add `merge_pr()` method to `PlatformService` trait
+- ✅ Add `get_pr_details()` method to `PlatformService` trait
+- ✅ Add `check_merge_readiness()` method to `PlatformService` trait
+- ✅ Add `merge_pr()` method to `PlatformService` trait
 
 ### Trait Extension
 
@@ -496,32 +531,168 @@ pub trait PlatformService: Send + Sync {
 - 🔴 Implement `check_merge_readiness()` in `GitHubService`
 - 🔴 Implement `merge_pr()` in `GitHubService`
 
-### API Endpoints Used
+### octocrab API Mapping
 
+| Method | octocrab Call | Notes |
+|--------|--------------|-------|
+| `get_pr_details()` | `pulls().get(pr_number)` | Direct field mapping |
+| `check_merge_readiness()` | `pulls().get()` + `pulls().list_reviews()` | Plus CI status (see below) |
+| `merge_pr()` | `pulls().merge(pr_number).method(...).send()` | Full support ✅ |
+
+### Implementation Sketches
+
+**`get_pr_details()`:**
+```rust
+async fn get_pr_details(&self, pr_number: u64) -> Result<PullRequestDetails> {
+    let pr = self.client
+        .pulls(&self.config.owner, &self.config.repo)
+        .get(pr_number)
+        .await?;
+    
+    Ok(PullRequestDetails {
+        number: pr.number,
+        title: pr.title.unwrap_or_default(),
+        body: pr.body,
+        state: match pr.state.as_deref() {
+            Some("open") => PrState::Open,
+            Some("closed") if pr.merged_at.is_some() => PrState::Merged,
+            _ => PrState::Closed,
+        },
+        is_draft: pr.draft.unwrap_or(false),
+        mergeable: pr.mergeable,  // Option<bool> - may be None while computing
+        head_ref: pr.head.ref_field,
+        base_ref: pr.base.ref_field,
+        html_url: pr.html_url.map(|u| u.to_string()).unwrap_or_default(),
+    })
+}
 ```
-GET /repos/{owner}/{repo}/pulls/{pr_number}
-  -> title, body, state, draft, mergeable, head.ref, base.ref
 
-GET /repos/{owner}/{repo}/pulls/{pr_number}/reviews
-  -> Check for APPROVED reviews
-
-GET /repos/{owner}/{repo}/commits/{ref}/check-runs
-  -> CI status (or use combined status endpoint)
-
-PUT /repos/{owner}/{repo}/pulls/{pr_number}/merge
-  {
-    "merge_method": "squash",
-    "commit_title": "{title} (#{number})",
-    "commit_message": "{body}"
-  }
+**`check_merge_readiness()`:**
+```rust
+async fn check_merge_readiness(&self, pr_number: u64) -> Result<MergeReadiness> {
+    let details = self.get_pr_details(pr_number).await?;
+    
+    // Check reviews for approval
+    let reviews = self.client
+        .pulls(&self.config.owner, &self.config.repo)
+        .list_reviews(pr_number)
+        .send()
+        .await?;
+    let is_approved = reviews.items.iter().any(|r| r.state == Some("APPROVED".into()));
+    
+    // CI status - use combined status endpoint (raw HTTP)
+    let ci_passed = self.check_ci_status(&details.head_ref).await.unwrap_or(false);
+    
+    let mut blocking_reasons = Vec::new();
+    if details.is_draft { blocking_reasons.push("PR is a draft".into()); }
+    if !is_approved { blocking_reasons.push("Not approved".into()); }
+    if !ci_passed { blocking_reasons.push("CI not passing".into()); }
+    if details.mergeable == Some(false) { blocking_reasons.push("Has merge conflicts".into()); }
+    if details.mergeable.is_none() { blocking_reasons.push("Merge status unknown".into()); }
+    
+    Ok(MergeReadiness {
+        is_approved,
+        ci_passed,
+        is_mergeable: details.mergeable.unwrap_or(false),
+        is_draft: details.is_draft,
+        blocking_reasons,
+    })
+}
 ```
 
-### Implementation Notes
+**`merge_pr()`:**
+```rust
+async fn merge_pr(&self, pr_number: u64, method: MergeMethod) -> Result<MergeResult> {
+    // Get PR details for commit message (squash needs title/body)
+    let details = self.get_pr_details(pr_number).await?;
+    
+    let octocrab_method = match method {
+        MergeMethod::Squash => octocrab::params::pulls::MergeMethod::Squash,
+        MergeMethod::Merge => octocrab::params::pulls::MergeMethod::Merge,
+        MergeMethod::Rebase => octocrab::params::pulls::MergeMethod::Rebase,
+    };
+    
+    let mut builder = self.client
+        .pulls(&self.config.owner, &self.config.repo)
+        .merge(pr_number)
+        .method(octocrab_method);
+    
+    // For squash, use PR title and body as commit message
+    if method == MergeMethod::Squash {
+        builder = builder.title(format!("{} (#{})", details.title, pr_number));
+        if let Some(body) = &details.body {
+            builder = builder.message(body);
+        }
+    }
+    
+    let result = builder.send().await?;
+    
+    Ok(MergeResult {
+        merged: result.merged.unwrap_or(false),
+        sha: result.sha,
+        message: result.message,
+    })
+}
+```
 
-- `octocrab` (v0.47) provides `pulls().get()` for PR details
-- Reviews endpoint: `pulls().list_reviews()` or raw API call
-- Check runs: may need raw API call via `octocrab._get()`
-- Merge: `pulls().merge()` with options
+### CI Status Checking (Helper Method)
+
+```rust
+impl GitHubService {
+    /// Check combined commit status for CI
+    async fn check_ci_status(&self, ref_name: &str) -> Result<bool> {
+        // GET /repos/{owner}/{repo}/commits/{ref}/status
+        let url = format!(
+            "https://api.github.com/repos/{}/{}/commits/{}/status",
+            self.config.owner, self.config.repo, ref_name
+        );
+        
+        // Use octocrab's internal client for raw request
+        // Or: Accept "unknown" as non-blocking for MVP
+        
+        // Response has: state = "success" | "pending" | "failure" | "error"
+        // Return true only if state == "success"
+        todo!("Implement raw HTTP call or mark CI as best-effort")
+    }
+}
+```
+
+### CI Status Checking (Helper Method)
+
+```rust
+impl GitHubService {
+    /// Check combined commit status for CI
+    async fn check_ci_status(&self, ref_name: &str) -> Result<bool> {
+        // Use reqwest directly (octocrab doesn't expose this endpoint)
+        let url = format!(
+            "https://{}/repos/{}/{}/commits/{}/status",
+            self.api_host(),
+            self.config.owner,
+            self.config.repo,
+            ref_name
+        );
+        
+        #[derive(Deserialize)]
+        struct CombinedStatus {
+            state: String,
+        }
+        
+        let response: CombinedStatus = self.http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await?
+            .json()
+            .await?;
+        
+        // "success" means all checks passed
+        Ok(response.state == "success")
+    }
+}
+```
+
+**Note**: Requires storing token and http_client in `GitHubService`. The token is already available from construction; add a `reqwest::Client` field.
 
 ---
 
@@ -558,6 +729,27 @@ PUT /projects/{id}/merge_requests/{mr_iid}/merge
 ### Tasks
 - 🔴 Add `Commands::Merge` variant to `src/main.rs`
 - 🔴 Create `src/cli/merge.rs` module
+
+### CLI Design
+
+```rust
+/// Merge approved PRs in the stack
+Merge {
+    /// Dry run - show what would be merged without making changes
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Preview plan and prompt for confirmation before executing
+    #[arg(long, short = 'c')]
+    confirm: bool,
+
+    /// Git remote to use
+    #[arg(long)]
+    remote: Option<String>,
+}
+```
+
+**Default behavior**: Merge all consecutive mergeable PRs from the bottom of the stack. No `--all` flag needed (it's the default). No `--first` flag for v1 - users can use `--dry-run` to preview and GitHub UI for fine-grained control.
 - 🔴 Export from `src/cli/mod.rs`
 - 🔴 Wire up in `main()` match arm
 
@@ -661,9 +853,8 @@ pub enum MergeStep {
 /// Options for merge planning
 #[derive(Debug, Clone, Default)]
 pub struct MergePlanOptions {
-    /// Merge all consecutive mergeable PRs
-    pub all: bool,
-    /// Target bookmark (merge up to this bookmark)
+    /// Target bookmark (merge up to and including this bookmark)
+    /// If None, merge all consecutive mergeable PRs
     pub target_bookmark: Option<String>,
 }
 
@@ -746,11 +937,7 @@ pub fn create_merge_plan(
                 method: MergeMethod::Squash,
             });
             bookmarks_to_clear.push(bookmark_name.clone());
-            
-            // If not --all, stop after first mergeable
-            if !options.all {
-                hit_blocker = true;
-            }
+            // Continue to next PR (default: merge all consecutive mergeable)
         } else {
             steps.push(MergeStep::Skip {
                 bookmark: bookmark_name.clone(),
@@ -893,7 +1080,7 @@ use jj_ryu::error::{Error, Result};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::merge::{create_merge_plan, execute_merge, MergePlan, MergePlanOptions, MergeStep, PrInfo};
 use jj_ryu::submit::{analyze_submission, create_submission_plan, execute_submission};
-use jj_ryu::tracking::save_pr_cache;
+use jj_ryu::tracking::{save_pr_cache, save_tracking};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -902,7 +1089,7 @@ use std::time::Duration;
 pub struct MergeOptions {
     pub dry_run: bool,
     pub confirm: bool,
-    pub all: bool,
+    // Note: --all is the default behavior, so no flag needed
 }
 
 /// Run the merge command
@@ -1007,9 +1194,19 @@ pub async fn run_merge(
         &progress
     ).await?;
     
-    // Post-merge: save cache, fetch, rebase, re-submit
+    // Post-merge cleanup and sync
     if !merge_result.merged_bookmarks.is_empty() {
+        // Clean up merged bookmarks
+        for bookmark in &merge_result.merged_bookmarks {
+            ctx.pr_cache.remove(bookmark);
+            ctx.tracking.untrack(bookmark);
+            // Delete local bookmark (ignore errors - may already be gone)
+            let _ = ctx.workspace.delete_bookmark(bookmark);
+        }
         save_pr_cache(&ctx.workspace_root, &ctx.pr_cache)?;
+        save_tracking(&ctx.workspace_root, &ctx.tracking)?;
+        
+        // Only rebase if bottom-most PR merged (trunk has changed)
         post_merge_sync(&mut ctx, &merge_plan, &merge_result).await?;
     }
     
@@ -1046,6 +1243,9 @@ async fn fetch_all_pr_info(
 }
 
 /// Post-merge operations: fetch, rebase, re-submit
+/// Post-merge sync: fetch, rebase remaining stack, re-submit
+/// 
+/// Only called when bottom-most PR merged successfully (trunk changed).
 async fn post_merge_sync(
     ctx: &mut CommandContext,
     plan: &MergePlan,
@@ -1156,10 +1356,11 @@ fn print_blocking_summary(plan: &MergePlan) {
 
 ---
 
-## Phase 6c: Workspace Rebase Helper 🔴
+## Phase 6c: Workspace Helpers 🔴
 
 ### Tasks
 - 🔴 Add `rebase_bookmark_onto_trunk()` to `JjWorkspace`
+- 🔴 Add `delete_bookmark()` to `JjWorkspace`
 
 ### Implementation
 
@@ -1182,6 +1383,24 @@ impl JjWorkspace {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(Error::RebaseFailed(stderr.to_string()));
+        }
+        
+        Ok(())
+    }
+    
+    /// Delete a local bookmark
+    /// 
+    /// Used after merge to clean up the merged bookmark.
+    pub fn delete_bookmark(&mut self, bookmark: &str) -> Result<()> {
+        let output = std::process::Command::new("jj")
+            .args(["bookmark", "delete", bookmark])
+            .current_dir(&self.workspace_path)
+            .output()
+            .map_err(|e| Error::Workspace(format!("Failed to run jj bookmark delete: {e}")))?;
+        
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::Workspace(format!("Failed to delete bookmark: {stderr}")));
         }
         
         Ok(())
@@ -1334,6 +1553,76 @@ Add to WHERE TO LOOK table:
 
 ---
 
+## Research Verification (2026-02-24)
+
+### Verified Completed Work
+
+| Phase | Status | Verification |
+|-------|--------|--------------|
+| Phase 0: CommandContext | ✅ Complete | `src/cli/context.rs` exists with all documented fields |
+| Phase 1: Type System | ✅ Complete | `src/types.rs` lines 157-263 have all merge types |
+| Phase 2: Platform Trait | ✅ Complete | Trait extended, stubs in GitHub/GitLab/Mock |
+
+### Key Findings
+
+1. **CommandContext pattern confirmed** - `sync.rs` demonstrates correct usage:
+   - Collect `tracked_names()` into owned `Vec<String>` BEFORE mutations
+   - Call `git_fetch()` (mutates workspace)
+   - Rebuild graph after mutations
+
+### Finalized Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Merge method | Squash-only for v1 | Simplest; matches stacked PR workflow |
+| Draft handling | Drafts block merge | User runs `ryu submit --publish` first |
+| CI checking | Check combined status (Option B) | Good dry-run UX worth ~10 lines of code |
+| Default behavior | Merge all consecutive mergeable | Most useful default; no `--all` flag needed |
+| Post-merge cleanup | `pr_cache.remove()` + `workspace.delete_bookmark()` + `tracking.untrack()` | Clean local state |
+| Rebase condition | Only if bottom-most PR merged | Trunk unchanged if first PR fails |
+
+2. **JjWorkspace missing rebase method** - `src/repo/workspace.rs` has no `rebase_bookmark_onto_trunk()`. This must be added in Phase 6c.
+
+3. **Error enum missing `RebaseFailed`** - `src/error.rs` doesn't have this variant. Must add in Phase 7.
+
+4. **MockPlatformService has stubs** - All three merge methods return "not yet implemented" errors. Response injection must be added in Phase 8.
+
+5. **octocrab merge API confirmed** - `pulls().merge()` builder supports:
+   - `.method()` - Squash/Merge/Rebase
+   - `.title()` / `.message()` - For squash commit
+   - `.sha()` - Optional safety check
+   - Full async/await pattern
+
+6. **CI status checking** - octocrab doesn't directly expose combined status endpoint. **Decision**: Use raw HTTP (~10 lines) for proper dry-run UX. Users should see "CI not passing" rather than a cryptic server error.
+
+### Implementation Order (Recommended)
+
+Based on dependencies discovered during research:
+
+1. **Phase 7 (Error)** - Quick, unblocks Phase 6c
+2. **Phase 3 (GitHub)** - Core functionality, enables testing
+3. **Phase 4 (GitLab)** - Parallel structure to GitHub
+4. **Phase 6 (merge module)** - Pure `plan.rs` first (no I/O)
+5. **Phase 6c (rebase helper)** - Depends on error variant
+6. **Phase 8 (Mock extension)** - Needed for integration tests
+7. **Phase 5 (CLI command)** - Wire up main.rs
+8. **Phase 6b (orchestrator)** - Final integration in `cli/merge.rs`
+9. **Phase 9 (Docs)** - After everything works
+
+### Open Questions Resolved
+
+| Question | Resolution |
+|----------|------------|
+| Does octocrab have merge API? | ✅ Yes - `pulls().merge()` with full options |
+| How to map MergeMethod? | Simple match to `octocrab::params::pulls::MergeMethod` |
+| How to get approval status? | `pulls().list_reviews()` - check for `state == "APPROVED"` |
+| How to check CI status? | Raw HTTP to combined status endpoint |
+| Default behavior? | Merge all consecutive mergeable PRs (no `--all` flag) |
+| Post-merge cleanup? | Delete local bookmark + untrack + clear cache |
+| When to rebase? | Only if bottom-most PR merged (trunk changed) |
+
+---
+
 ## Resources for Implementation
 
 When implementing, include these files in context:
@@ -1352,20 +1641,20 @@ When implementing, include these files in context:
 
 ## Summary
 
-| Phase | Files Modified | Status |
-|-------|----------------|--------|
-| 0. Command Context | `cli/context.rs` (new), `cli/submit.rs`, `cli/sync.rs`, `cli/mod.rs` | ✅ |
-| 1. Types | `types.rs` | ✅ |
-| 2. Platform Trait | `platform/mod.rs` | 🔴 |
-| 3. GitHub Impl | `platform/github.rs` | 🔴 |
-| 4. GitLab Impl | `platform/gitlab.rs` | 🔴 |
-| 5. CLI Command | `main.rs`, `cli/mod.rs` | 🔴 |
-| 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | 🔴 |
-| 6b. CLI Orchestrator | `cli/merge.rs` (new) | 🔴 |
-| 6c. Rebase Helper | `repo/workspace.rs` | 🔴 |
-| 7. Errors | `error.rs` | 🔴 |
-| 8. Tests | `mock_platform.rs`, `integration_tests.rs`, `unit_tests.rs` | 🔴 |
-| 9. Docs | `README.md`, `AGENTS.md`, `merge/AGENTS.md` (new) | 🔴 |
+| Phase | Files Modified | Status | Notes |
+|-------|----------------|--------|-------|
+| 0. Command Context | `cli/context.rs` (new), `cli/submit.rs`, `cli/sync.rs`, `cli/mod.rs` | ✅ | Research verified |
+| 1. Types | `types.rs` | ✅ | Research verified |
+| 2. Platform Trait | `platform/mod.rs`, `github.rs`, `gitlab.rs`, mock | ✅ | Stubs in place |
+| 7. Errors | `error.rs` | 🔴 | Add `RebaseFailed` - do first |
+| 3. GitHub Impl | `platform/github.rs` | 🔴 | octocrab API confirmed |
+| 4. GitLab Impl | `platform/gitlab.rs` | 🔴 | Raw reqwest pattern |
+| 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | 🔴 | Pure plan.rs first |
+| 6c. Rebase Helper | `repo/workspace.rs` | 🔴 | Depends on Phase 7 |
+| 8. Tests | `mock_platform.rs`, `integration_tests.rs`, `unit_tests.rs` | 🔴 | Mock extension needed |
+| 5. CLI Command | `main.rs`, `cli/mod.rs` | 🔴 | Wire up command |
+| 6b. CLI Orchestrator | `cli/merge.rs` (new) | 🔴 | Final integration |
+| 9. Docs | `README.md`, `AGENTS.md`, `merge/AGENTS.md` (new) | 🔴 | After everything works |
 
 **Total new files**: 5
 - `src/cli/context.rs`

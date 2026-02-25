@@ -2,7 +2,10 @@
 
 use crate::error::{Error, Result};
 use crate::platform::PlatformService;
-use crate::types::{Platform, PlatformConfig, PrComment, PullRequest};
+use crate::types::{
+    MergeMethod, MergeReadiness, MergeResult, Platform, PlatformConfig, PrComment, PullRequest,
+    PullRequestDetails,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -303,5 +306,28 @@ impl PlatformService for GitLabService {
 
     fn config(&self) -> &PlatformConfig {
         &self.config
+    }
+
+    // =========================================================================
+    // Merge-related methods (stubs - full implementation in Phase 4)
+    // =========================================================================
+
+    async fn get_pr_details(&self, _pr_number: u64) -> Result<PullRequestDetails> {
+        // TODO: Implement in Phase 4
+        Err(Error::GitLabApi(
+            "get_pr_details not yet implemented".to_string(),
+        ))
+    }
+
+    async fn check_merge_readiness(&self, _pr_number: u64) -> Result<MergeReadiness> {
+        // TODO: Implement in Phase 4
+        Err(Error::GitLabApi(
+            "check_merge_readiness not yet implemented".to_string(),
+        ))
+    }
+
+    async fn merge_pr(&self, _pr_number: u64, _method: MergeMethod) -> Result<MergeResult> {
+        // TODO: Implement in Phase 4
+        Err(Error::GitLabApi("merge_pr not yet implemented".to_string()))
     }
 }
