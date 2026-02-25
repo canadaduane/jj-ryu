@@ -233,10 +233,10 @@ Before implementing merge, extract the shared CLI setup code that's duplicated b
 - Makes future commands easier to implement
 
 ### Tasks
-- 🔴 Create `src/cli/context.rs` with `CommandContext` struct
-- 🔴 Refactor `run_submit()` to use `CommandContext`
-- 🔴 Refactor `run_sync()` to use `CommandContext`
-- 🔴 Export from `src/cli/mod.rs`
+- ✅ Create `src/cli/context.rs` with `CommandContext` struct
+- ✅ Refactor `run_submit()` to use `CommandContext`
+- ✅ Refactor `run_sync()` to use `CommandContext`
+- ✅ Export from `src/cli/mod.rs`
 
 ### Implementation
 
@@ -1313,7 +1313,7 @@ When implementing, include these files in context:
 
 | Phase | Files Modified | Status |
 |-------|----------------|--------|
-| 0. Command Context | `cli/context.rs` (new), `cli/submit.rs`, `cli/sync.rs`, `cli/mod.rs` | 🔴 |
+| 0. Command Context | `cli/context.rs` (new), `cli/submit.rs`, `cli/sync.rs`, `cli/mod.rs` | ✅ |
 | 1. Types | `types.rs` | 🔴 |
 | 2. Platform Trait | `platform/mod.rs` | 🔴 |
 | 3. GitHub Impl | `platform/github.rs` | 🔴 |

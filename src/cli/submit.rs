@@ -1,18 +1,18 @@
 //! Submit command - submit a bookmark stack as PRs
 
+use crate::cli::context::CommandContext;
 use crate::cli::CliProgress;
 use crate::cli::style::{CHECK, Stylize, arrow, bullet, cross};
 use anstream::{eprintln, println};
 use dialoguer::Confirm;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::graph::build_change_graph;
-use jj_ryu::platform::{PlatformService, create_platform_service, parse_repo_info};
-use jj_ryu::repo::{JjWorkspace, select_remote};
+use jj_ryu::platform::PlatformService;
 use jj_ryu::submit::{
     ExecutionStep, SubmissionAnalysis, SubmissionPlan, analyze_submission, create_submission_plan,
     execute_submission, select_bookmark_for_segment,
 };
-use jj_ryu::tracking::{load_pr_cache, load_tracking, save_pr_cache};
+use jj_ryu::tracking::save_pr_cache;
 use jj_ryu::types::{ChangeGraph, NarrowedBookmarkSegment};
 use std::path::Path;
 
@@ -80,38 +80,20 @@ pub async fn run_submit(
         ));
     }
 
-    // Open workspace
-    let mut workspace = JjWorkspace::open(path)?;
-    let workspace_root = workspace.workspace_root().to_path_buf();
+    // Create shared context
+    let mut ctx = CommandContext::new(path, remote).await?;
 
-    // Load tracking state (unless --all bypasses tracking)
-    let tracking = load_tracking(&workspace_root)?;
-    let tracked_names: Vec<&str> = tracking.tracked_names().into_iter().collect();
-
-    // If no bookmarks tracked and not --all, error
+    // Check tracking (unless --all bypasses tracking)
+    // Collect into owned strings to avoid borrow checker issues with later mutations
+    let tracked_names: Vec<String> = ctx.tracked_names().into_iter().map(String::from).collect();
     if tracked_names.is_empty() && !options.all {
         return Err(Error::Tracking(
             "No bookmarks tracked. Run 'ryu track' first, or use 'ryu submit --all' to submit all bookmarks.".to_string()
         ));
     }
 
-    // Get remotes and select one
-    let remotes = workspace.git_remotes()?;
-    let remote_name = select_remote(&remotes, remote)?;
-
-    // Detect platform from remote URL
-    let remote_info = remotes
-        .iter()
-        .find(|r| r.name == remote_name)
-        .ok_or_else(|| Error::RemoteNotFound(remote_name.clone()))?;
-
-    let platform_config = parse_repo_info(&remote_info.url)?;
-
-    // Create platform service
-    let platform = create_platform_service(&platform_config).await?;
-
     // Build change graph from working copy
-    let graph = build_change_graph(&workspace)?;
+    let graph = build_change_graph(&ctx.workspace)?;
 
     // Check if we have a stack
     if graph.stack.is_none() {
@@ -134,13 +116,13 @@ pub async fn run_submit(
     }
 
     // Analyze submission based on options
-    let mut analysis = build_analysis(&graph, bookmark, &options, platform.as_ref()).await?;
+    let mut analysis = build_analysis(&graph, bookmark, &options, ctx.platform.as_ref()).await?;
 
     // Filter to tracked bookmarks unless --all
     if !options.all && !tracked_names.is_empty() {
         analysis
             .segments
-            .retain(|s| tracked_names.contains(&s.bookmark.name.as_str()));
+            .retain(|s| tracked_names.contains(&s.bookmark.name));
         if analysis.segments.is_empty() {
             return Err(Error::Tracking(
                 "No tracked bookmarks in submission scope. Use 'ryu track' to track bookmarks, or 'ryu submit --all'.".to_string()
@@ -151,12 +133,9 @@ pub async fn run_submit(
     // Display what will be submitted
     print_submission_summary(&analysis, &options);
 
-    // Get default branch
-    let default_branch = workspace.default_branch()?;
-
     // Create submission plan
     let mut plan =
-        create_submission_plan(&analysis, platform.as_ref(), &remote_name, &default_branch).await?;
+        create_submission_plan(&analysis, ctx.platform.as_ref(), &ctx.remote_name, &ctx.default_branch).await?;
 
     // Apply plan modifications based on options
     apply_plan_options(&mut plan, &options);
@@ -190,8 +169,8 @@ pub async fn run_submit(
     let progress = CliProgress::verbose();
     let result = execute_submission(
         &plan,
-        &mut workspace,
-        platform.as_ref(),
+        &mut ctx.workspace,
+        ctx.platform.as_ref(),
         &progress,
         options.dry_run,
     )
@@ -199,12 +178,11 @@ pub async fn run_submit(
 
     // Update PR cache with results
     if !options.dry_run && result.success {
-        let mut pr_cache = load_pr_cache(&workspace_root).unwrap_or_default();
         for pr in result.created_prs.iter().chain(result.updated_prs.iter()) {
-            pr_cache.upsert(&pr.head_ref, pr, &remote_name);
+            ctx.pr_cache.upsert(&pr.head_ref, pr, &ctx.remote_name);
         }
         // Best effort - don't fail submit if cache write fails
-        let _ = save_pr_cache(&workspace_root, &pr_cache);
+        let _ = save_pr_cache(&ctx.workspace_root, &ctx.pr_cache);
     }
 
     // Summary

@@ -4,6 +4,7 @@
 
 mod analyze;
 mod auth;
+mod context;
 mod progress;
 pub mod style;
 mod submit;
