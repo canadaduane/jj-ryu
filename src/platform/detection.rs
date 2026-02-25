@@ -61,7 +61,7 @@ pub fn parse_repo_info(url: &str) -> Result<PlatformConfig> {
         return Err(Error::Parse(format!("invalid repo path: {path}")));
     }
 
-    let repo = parts.last().unwrap().to_string();
+    let repo = (*parts.last().unwrap()).to_string();
     let owner = parts[..parts.len() - 1].join("/");
 
     // Determine if self-hosted

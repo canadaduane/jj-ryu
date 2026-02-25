@@ -210,6 +210,7 @@ pub struct PullRequestDetails {
 ///
 /// Captures all the conditions that must be met for a PR to be merged.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct MergeReadiness {
     /// Whether the PR has been approved by reviewers
     pub is_approved: bool,
@@ -225,7 +226,7 @@ pub struct MergeReadiness {
 
 impl MergeReadiness {
     /// Check if all conditions are met for merging
-    pub fn can_merge(&self) -> bool {
+    pub const fn can_merge(&self) -> bool {
         self.is_approved && self.ci_passed && self.is_mergeable && !self.is_draft
     }
 }

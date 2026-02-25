@@ -104,6 +104,10 @@ pub enum Error {
     /// Tracking state error
     #[error("tracking error: {0}")]
     Tracking(String),
+
+    /// Rebase failed after merge
+    #[error("rebase failed: {0}")]
+    RebaseFailed(String),
 }
 
 /// Result type alias for jj-ryu operations

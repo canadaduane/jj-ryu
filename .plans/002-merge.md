@@ -1412,10 +1412,10 @@ impl JjWorkspace {
 
 ---
 
-## Phase 7: Error Handling 🔴
+## Phase 7: Error Handling ✅
 
 ### Tasks
-- 🔴 Add `RebaseFailed` error variant to `src/error.rs`
+- ✅ Add `RebaseFailed` error variant to `src/error.rs`
 
 ### Error Variants
 
@@ -1646,7 +1646,7 @@ When implementing, include these files in context:
 | 0. Command Context | `cli/context.rs` (new), `cli/submit.rs`, `cli/sync.rs`, `cli/mod.rs` | ✅ | Research verified |
 | 1. Types | `types.rs` | ✅ | Research verified |
 | 2. Platform Trait | `platform/mod.rs`, `github.rs`, `gitlab.rs`, mock | ✅ | Stubs in place |
-| 7. Errors | `error.rs` | 🔴 | Add `RebaseFailed` - do first |
+| 7. Errors | `error.rs` | ✅ | `RebaseFailed` added |
 | 3. GitHub Impl | `platform/github.rs` | 🔴 | octocrab API confirmed |
 | 4. GitLab Impl | `platform/gitlab.rs` | 🔴 | Raw reqwest pattern |
 | 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | 🔴 | Pure plan.rs first |
