@@ -113,13 +113,30 @@ impl GitHubService {
         })
     }
 
-    /// Check combined commit status for CI
+    /// Check CI status by querying both commit statuses and check runs
     ///
-    /// Uses the combined status endpoint to check if all status checks have passed.
+    /// GitHub has two CI systems:
+    /// 1. Commit Status API (legacy) - used by external CI services
+    /// 2. Check Runs API (modern) - used by GitHub Actions
+    ///
+    /// We need to check both to properly determine CI status.
     async fn check_ci_status(&self, ref_name: &str) -> Result<bool> {
+        // Check commit statuses (legacy API)
+        let statuses_passed = self.check_commit_statuses(ref_name).await?;
+
+        // Check check runs (GitHub Actions API)
+        let check_runs_passed = self.check_check_runs(ref_name).await?;
+
+        // CI passes if both pass (or are not configured)
+        Ok(statuses_passed && check_runs_passed)
+    }
+
+    /// Check legacy commit statuses via combined status API
+    async fn check_commit_statuses(&self, ref_name: &str) -> Result<bool> {
         #[derive(Deserialize)]
         struct CombinedStatus {
             state: String,
+            total_count: u32,
         }
 
         let url = format!(
@@ -135,13 +152,12 @@ impl GitHubService {
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
             .await
-            .map_err(|e| Error::GitHubApi(format!("Failed to fetch CI status: {e}")))?;
+            .map_err(|e| Error::GitHubApi(format!("Failed to fetch commit status: {e}")))?;
 
         if !response.status().is_success() {
-            // If we can't get status, assume it's not blocking (no statuses configured)
             debug!(
                 status = %response.status(),
-                "CI status check returned non-success, assuming no statuses configured"
+                "Commit status check returned non-success, assuming no statuses configured"
             );
             return Ok(true);
         }
@@ -149,11 +165,95 @@ impl GitHubService {
         let status: CombinedStatus = response
             .json()
             .await
-            .map_err(|e| Error::GitHubApi(format!("Failed to parse CI status: {e}")))?;
+            .map_err(|e| Error::GitHubApi(format!("Failed to parse commit status: {e}")))?;
 
-        // "success" means all checks passed, "pending" means still running
-        // Empty state (no statuses) also counts as success
-        Ok(status.state == "success" || status.state.is_empty())
+        // No statuses configured = passing
+        // "success" = all passed
+        // "pending" or "failure" = not passing
+        if status.total_count == 0 {
+            debug!("No commit statuses configured");
+            return Ok(true);
+        }
+
+        debug!(state = %status.state, count = status.total_count, "Commit status result");
+        Ok(status.state == "success")
+    }
+
+    /// Check GitHub Actions check runs
+    async fn check_check_runs(&self, ref_name: &str) -> Result<bool> {
+        #[derive(Deserialize)]
+        struct CheckRunsResponse {
+            total_count: u32,
+            check_runs: Vec<CheckRun>,
+        }
+
+        #[derive(Deserialize)]
+        struct CheckRun {
+            status: String,
+            conclusion: Option<String>,
+        }
+
+        let url = format!(
+            "https://{}/repos/{}/{}/commits/{}/check-runs",
+            self.api_host, self.config.owner, self.config.repo, ref_name
+        );
+
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await
+            .map_err(|e| Error::GitHubApi(format!("Failed to fetch check runs: {e}")))?;
+
+        if !response.status().is_success() {
+            debug!(
+                status = %response.status(),
+                "Check runs returned non-success, assuming no checks configured"
+            );
+            return Ok(true);
+        }
+
+        let check_runs: CheckRunsResponse = response
+            .json()
+            .await
+            .map_err(|e| Error::GitHubApi(format!("Failed to parse check runs: {e}")))?;
+
+        // No check runs configured = passing
+        if check_runs.total_count == 0 {
+            debug!("No check runs configured");
+            return Ok(true);
+        }
+
+        // All check runs must be completed with success/neutral/skipped
+        for run in &check_runs.check_runs {
+            // If any check is still running, CI is not complete
+            if run.status != "completed" {
+                debug!(status = %run.status, "Check run still in progress");
+                return Ok(false);
+            }
+
+            // Check conclusion for completed runs
+            match run.conclusion.as_deref() {
+                Some("success" | "neutral" | "skipped") => {
+                    // These are passing conclusions
+                }
+                Some(conclusion) => {
+                    debug!(conclusion = %conclusion, "Check run failed");
+                    return Ok(false);
+                }
+                None => {
+                    // Completed but no conclusion? Treat as failure
+                    debug!("Check run completed but no conclusion");
+                    return Ok(false);
+                }
+            }
+        }
+
+        debug!(count = check_runs.total_count, "All check runs passed");
+        Ok(true)
     }
 }
 
