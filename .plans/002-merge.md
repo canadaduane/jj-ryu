@@ -1600,13 +1600,15 @@ fn print_blocking_summary(plan: &MergePlan) {
 
 ---
 
-## Phase 6c: Workspace Helpers 🔴
+## Phase 6c: Workspace Helpers ✅
 
 ### Tasks
-- 🔴 Add `rebase_bookmark_onto_trunk()` to `JjWorkspace`
-- 🔴 Add `delete_bookmark()` to `JjWorkspace`
+- ✅ Add `rebase_bookmark_onto_trunk()` to `JjWorkspace`
+- ✅ Add `delete_bookmark()` to `JjWorkspace`
 
 ### Implementation
+
+Uses jj-lib directly (not CLI) for consistency with the rest of the codebase:
 
 ```rust
 impl JjWorkspace {
@@ -1615,20 +1617,45 @@ impl JjWorkspace {
     /// After a merge, the bottom of the stack is now in trunk.
     /// This rebases the next bookmark (and everything above it) onto the new trunk.
     pub fn rebase_bookmark_onto_trunk(&mut self, bookmark: &str) -> Result<()> {
-        // Use jj rebase -b <bookmark> -d trunk()
-        // This moves the bookmark and all its descendants onto trunk
-        
-        let output = std::process::Command::new("jj")
-            .args(["rebase", "-b", bookmark, "-d", "trunk()"])
-            .current_dir(&self.workspace_path)
-            .output()
-            .map_err(|e| Error::RebaseFailed(format!("Failed to run jj rebase: {e}")))?;
-        
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(Error::RebaseFailed(stderr.to_string()));
-        }
-        
+        let repo = self.repo()?;
+
+        // Resolve trunk() to get destination commit
+        let trunk_commits = self.resolve_revset("trunk()")?;
+        let trunk_entry = trunk_commits
+            .first()
+            .ok_or_else(|| Error::RebaseFailed("trunk() resolved to empty set".to_string()))?;
+        let trunk_commit_id = CommitId::try_from_hex(&trunk_entry.commit_id)
+            .ok_or_else(|| Error::RebaseFailed("invalid trunk commit id".to_string()))?;
+
+        // Resolve the bookmark to get the commit to rebase
+        let bookmark_commits = self.resolve_revset(bookmark)?;
+        let bookmark_entry = bookmark_commits
+            .first()
+            .ok_or_else(|| {
+                Error::RebaseFailed(format!("bookmark '{bookmark}' resolved to empty set"))
+            })?;
+        let bookmark_commit_id = CommitId::try_from_hex(&bookmark_entry.commit_id)
+            .ok_or_else(|| Error::RebaseFailed("invalid bookmark commit id".to_string()))?;
+
+        // Start a transaction for the rebase
+        let mut tx = repo.start_transaction();
+
+        // Set up the move: rebase bookmark and all descendants onto trunk
+        let location = MoveCommitsLocation {
+            new_parent_ids: vec![trunk_commit_id],
+            new_child_ids: vec![],
+            target: MoveCommitsTarget::Roots(vec![bookmark_commit_id]),
+        };
+
+        let options = RebaseOptions::default();
+
+        move_commits(tx.repo_mut(), &location, &options)
+            .map_err(|e| Error::RebaseFailed(format!("Failed to rebase: {e}")))?;
+
+        // Commit the transaction
+        tx.commit(format!("rebase {bookmark} onto trunk"))
+            .map_err(|e| Error::RebaseFailed(format!("Failed to commit rebase: {e}")))?;
+
         Ok(())
     }
     
@@ -1636,23 +1663,31 @@ impl JjWorkspace {
     /// 
     /// Used after merge to clean up the merged bookmark.
     pub fn delete_bookmark(&mut self, bookmark: &str) -> Result<()> {
-        let output = std::process::Command::new("jj")
-            .args(["bookmark", "delete", bookmark])
-            .current_dir(&self.workspace_path)
-            .output()
-            .map_err(|e| Error::Workspace(format!("Failed to run jj bookmark delete: {e}")))?;
-        
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(Error::Workspace(format!("Failed to delete bookmark: {stderr}")));
-        }
-        
+        let repo = self.repo()?;
+
+        // Start a transaction
+        let mut tx = repo.start_transaction();
+
+        // Set the bookmark target to absent (deletes it)
+        let ref_name = RefName::new(bookmark);
+        tx.repo_mut()
+            .set_local_bookmark_target(ref_name, RefTarget::absent());
+
+        // Commit the transaction
+        tx.commit(format!("delete bookmark {bookmark}"))
+            .map_err(|e| {
+                Error::Workspace(format!("Failed to commit bookmark deletion: {e}"))
+            })?;
+
         Ok(())
     }
 }
 ```
 
-**Note**: Using CLI `jj rebase` for simplicity. Could use jj-lib directly for tighter integration, but CLI is more maintainable and already battle-tested.
+**Key jj-lib APIs used:**
+- `move_commits()` with `MoveCommitsTarget::Roots` for rebasing bookmark + descendants
+- `set_local_bookmark_target()` with `RefTarget::absent()` to delete bookmark
+- `CommitId::try_from_hex()` to convert hex strings from `resolve_revset()`
 
 ---
 
@@ -1894,7 +1929,7 @@ When implementing, include these files in context:
 | 3. GitHub Impl | `platform/github.rs` | ✅ | Merge methods implemented |
 | 4. GitLab Impl | `platform/gitlab.rs` | ✅ | Merge methods implemented |
 | 6. Merge Module | `merge/mod.rs`, `merge/plan.rs`, `merge/execute.rs` (new) | ✅ | Pure plan + execute |
-| 6c. Rebase Helper | `repo/workspace.rs` | 🔴 | Depends on Phase 7 |
+| 6c. Rebase Helper | `repo/workspace.rs` | ✅ | rebase + delete bookmark |
 | 8. Tests | `mock_platform.rs`, `integration_tests.rs`, `unit_tests.rs` | 🔴 | Mock extension needed |
 | 5. CLI Command | `main.rs`, `cli/mod.rs` | 🔴 | Wire up command |
 | 6b. CLI Orchestrator | `cli/merge.rs` (new) | 🔴 | Final integration |

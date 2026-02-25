@@ -2,6 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::types::{Bookmark, GitRemote, LogEntry};
+use jj_lib::backend::CommitId;
 use chrono::{DateTime, TimeZone, Utc};
 use jj_lib::backend::Timestamp;
 use jj_lib::commit::Commit;
@@ -10,6 +11,8 @@ use jj_lib::git::{
     self, GitFetch, GitImportOptions, GitRefUpdate, GitSettings, RemoteCallbacks,
     expand_fetch_refspecs,
 };
+use jj_lib::op_store::RefTarget;
+use jj_lib::rewrite::{MoveCommitsLocation, MoveCommitsTarget, RebaseOptions, move_commits};
 use jj_lib::object_id::ObjectId;
 use jj_lib::op_store::{RemoteRef, RemoteRefState};
 use jj_lib::ref_name::{RefName, RemoteName};
@@ -612,6 +615,76 @@ impl JjWorkspace {
     /// Get the workspace root path
     pub fn workspace_root(&self) -> &Path {
         self.workspace.workspace_root()
+    }
+
+    /// Rebase a bookmark and its descendants onto trunk
+    ///
+    /// After a merge, the bottom of the stack is now in trunk.
+    /// This rebases the next bookmark (and everything above it) onto the new trunk.
+    pub fn rebase_bookmark_onto_trunk(&mut self, bookmark: &str) -> Result<()> {
+        let repo = self.repo()?;
+
+        // Resolve trunk() to get destination commit
+        let trunk_commits = self.resolve_revset("trunk()")?;
+        let trunk_entry = trunk_commits
+            .first()
+            .ok_or_else(|| Error::RebaseFailed("trunk() resolved to empty set".to_string()))?;
+        let trunk_commit_id = CommitId::try_from_hex(&trunk_entry.commit_id)
+            .ok_or_else(|| Error::RebaseFailed("invalid trunk commit id".to_string()))?;
+
+        // Resolve the bookmark to get the commit to rebase
+        let bookmark_commits = self.resolve_revset(bookmark)?;
+        let bookmark_entry = bookmark_commits
+            .first()
+            .ok_or_else(|| {
+                Error::RebaseFailed(format!("bookmark '{bookmark}' resolved to empty set"))
+            })?;
+        let bookmark_commit_id = CommitId::try_from_hex(&bookmark_entry.commit_id)
+            .ok_or_else(|| Error::RebaseFailed("invalid bookmark commit id".to_string()))?;
+
+        // Start a transaction for the rebase
+        let mut tx = repo.start_transaction();
+
+        // Set up the move: rebase bookmark and all descendants onto trunk
+        let location = MoveCommitsLocation {
+            new_parent_ids: vec![trunk_commit_id],
+            new_child_ids: vec![],
+            target: MoveCommitsTarget::Roots(vec![bookmark_commit_id]),
+        };
+
+        let options = RebaseOptions::default();
+
+        move_commits(tx.repo_mut(), &location, &options)
+            .map_err(|e| Error::RebaseFailed(format!("Failed to rebase: {e}")))?;
+
+        // Commit the transaction
+        tx.commit(format!("rebase {bookmark} onto trunk"))
+            .map_err(|e| Error::RebaseFailed(format!("Failed to commit rebase: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Delete a local bookmark
+    ///
+    /// Used after merge to clean up the merged bookmark.
+    pub fn delete_bookmark(&mut self, bookmark: &str) -> Result<()> {
+        let repo = self.repo()?;
+
+        // Start a transaction
+        let mut tx = repo.start_transaction();
+
+        // Set the bookmark target to absent (deletes it)
+        let ref_name = RefName::new(bookmark);
+        tx.repo_mut()
+            .set_local_bookmark_target(ref_name, RefTarget::absent());
+
+        // Commit the transaction
+        tx.commit(format!("delete bookmark {bookmark}"))
+            .map_err(|e| {
+                Error::Workspace(format!("Failed to commit bookmark deletion: {e}"))
+            })?;
+
+        Ok(())
     }
 }
 
