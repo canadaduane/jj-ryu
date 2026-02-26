@@ -869,6 +869,32 @@ mod merge_plan_test {
         }
     }
 
+    /// Helper to create a PrInfo with uncertain merge status (GitHub still computing)
+    fn make_uncertain_pr_info(bookmark: &str, pr_number: u64, title: &str) -> PrInfo {
+        PrInfo {
+            bookmark: bookmark.to_string(),
+            details: PullRequestDetails {
+                number: pr_number,
+                title: title.to_string(),
+                body: Some(format!("PR body for {bookmark}")),
+                state: PrState::Open,
+                is_draft: false,
+                mergeable: None, // Unknown - GitHub still computing
+                head_ref: bookmark.to_string(),
+                base_ref: "main".to_string(),
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+            },
+            readiness: MergeReadiness {
+                is_approved: true,
+                ci_passed: true,
+                is_mergeable: None, // Must match details.mergeable
+                is_draft: false,
+                blocking_reasons: vec![],
+                uncertainties: vec!["Merge status unknown (GitHub still computing)".to_string()],
+            },
+        }
+    }
+
     #[test]
     fn test_create_merge_plan_single_mergeable() {
         let graph = make_linear_stack(&["feat-a"]);
@@ -1194,5 +1220,111 @@ mod merge_plan_test {
         // merge_count should only count Merge steps, not Skip steps
         assert_eq!(plan.merge_count(), 1);
         assert_eq!(plan.steps.len(), 2); // 1 Merge + 1 Skip
+    }
+
+    #[test]
+    fn test_create_merge_plan_uncertain_mergeable_has_uncertain_confidence() {
+        // PR with is_mergeable: None should produce Merge with Uncertain confidence
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_uncertain_pr_info("feat-a", 1, "Feature A"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(!plan.is_empty());
+        assert!(plan.has_actionable);
+        match &plan.steps[0] {
+            MergeStep::Merge { confidence, .. } => {
+                assert!(matches!(confidence, MergeConfidence::Uncertain(_)));
+                if let MergeConfidence::Uncertain(reason) = confidence {
+                    assert!(reason.contains("Merge status unknown"));
+                }
+            }
+            _ => panic!("Expected Merge step"),
+        }
+    }
+
+    #[test]
+    fn test_blocked_with_unknown_mergeable_still_skips() {
+        // If not approved AND mergeable unknown, should Skip (blocker takes precedence)
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        let mut info = make_uncertain_pr_info("feat-a", 1, "Feature A");
+        info.readiness.is_approved = false;
+        info.readiness.blocking_reasons = vec!["Not approved".to_string()];
+        pr_info.insert("feat-a".to_string(), info);
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+
+        assert!(plan.is_empty()); // No Merge steps
+        assert!(
+            matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"Not approved".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_merge_readiness_is_blocked() {
+        // Unit tests for is_blocked() with various combinations
+        let base = MergeReadiness {
+            is_approved: true,
+            ci_passed: true,
+            is_mergeable: Some(true),
+            is_draft: false,
+            blocking_reasons: vec![],
+            uncertainties: vec![],
+        };
+        assert!(!base.is_blocked());
+
+        // Not approved blocks
+        let mut r = base.clone();
+        r.is_approved = false;
+        assert!(r.is_blocked());
+
+        // CI failing blocks
+        let mut r = base.clone();
+        r.ci_passed = false;
+        assert!(r.is_blocked());
+
+        // Conflicts block
+        let mut r = base.clone();
+        r.is_mergeable = Some(false);
+        assert!(r.is_blocked());
+
+        // Unknown does NOT block
+        let mut r = base.clone();
+        r.is_mergeable = None;
+        assert!(!r.is_blocked());
+
+        // Draft blocks
+        let mut r = base;
+        r.is_draft = true;
+        assert!(r.is_blocked());
+    }
+
+    #[test]
+    fn test_merge_readiness_uncertainty() {
+        // Unit tests for uncertainty() method
+        let mut r = MergeReadiness {
+            is_approved: true,
+            ci_passed: true,
+            is_mergeable: None,
+            is_draft: false,
+            blocking_reasons: vec![],
+            uncertainties: vec![],
+        };
+        assert!(r.uncertainty().is_none());
+
+        r.uncertainties = vec!["Reason 1".to_string()];
+        assert_eq!(r.uncertainty(), Some("Reason 1"));
+
+        r.uncertainties = vec!["Reason 1".to_string(), "Reason 2".to_string()];
+        assert_eq!(r.uncertainty(), Some("Reason 1")); // Returns first only
     }
 }

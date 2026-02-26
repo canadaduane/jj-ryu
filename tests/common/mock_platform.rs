@@ -273,6 +273,62 @@ impl MockPlatformService {
         );
     }
 
+    /// Helper to set up a PR with uncertain merge status (GitHub still computing)
+    pub fn setup_uncertain_pr(&self, pr_number: u64, bookmark: &str, title: &str) {
+        // Set find_pr response
+        self.set_find_pr_response(
+            bookmark,
+            Some(PullRequest {
+                number: pr_number,
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+                base_ref: "main".to_string(),
+                head_ref: bookmark.to_string(),
+                title: title.to_string(),
+                node_id: Some(format!("PR_node_{pr_number}")),
+                is_draft: false,
+            }),
+        );
+
+        // Set PR details with mergeable: None (unknown)
+        self.set_pr_details_response(
+            pr_number,
+            PullRequestDetails {
+                number: pr_number,
+                title: title.to_string(),
+                body: Some("PR body".to_string()),
+                state: PrState::Open,
+                is_draft: false,
+                mergeable: None, // Unknown - GitHub still computing
+                head_ref: bookmark.to_string(),
+                base_ref: "main".to_string(),
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+            },
+        );
+
+        // Set merge readiness with uncertainty
+        self.set_merge_readiness_response(
+            pr_number,
+            MergeReadiness {
+                is_approved: true,
+                ci_passed: true,
+                is_mergeable: None, // Must match details.mergeable
+                is_draft: false,
+                blocking_reasons: vec![],
+                uncertainties: vec!["Merge status unknown (GitHub still computing)".to_string()],
+            },
+        );
+
+        // Set merge response (optimistic - assume it will work)
+        self.set_merge_response(
+            pr_number,
+            MergeResult {
+                merged: true,
+                sha: Some(format!("merged_sha_{pr_number}")),
+                message: None,
+            },
+        );
+    }
+
     // === Call verification methods ===
 
     /// Get all branches that `find_existing_pr` was called with

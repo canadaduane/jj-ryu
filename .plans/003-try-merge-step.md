@@ -457,16 +457,16 @@ eprintln!("  {}: {}", "Error".error(), result.error_message.unwrap_or_default())
 
 **Note:** This requires adding `was_uncertain: bool` field to `MergeExecutionResult`.
 
-### Phase 5: Add New Uncertainty Tests 🔴
+### Phase 5: Add New Uncertainty Tests ✅
 
 **Tasks:**
 
-- 🔴 Add `make_uncertain_pr_info()` helper to `tests/unit_tests.rs`
-- 🔴 Add `setup_uncertain_pr()` helper to `tests/common/mock_platform.rs`
-- 🔴 Add test: `test_create_merge_plan_uncertain_mergeable_has_uncertain_confidence`
-- 🔴 Add test: `test_blocked_with_unknown_mergeable_still_skips`
-- 🔴 Add test: `test_merge_readiness_is_blocked`
-- 🔴 Add test: `test_merge_readiness_uncertainty`
+- ✅ Add `make_uncertain_pr_info()` helper to `tests/unit_tests.rs`
+- ✅ Add `setup_uncertain_pr()` helper to `tests/common/mock_platform.rs`
+- ✅ Add test: `test_create_merge_plan_uncertain_mergeable_has_uncertain_confidence`
+- ✅ Add test: `test_blocked_with_unknown_mergeable_still_skips`
+- ✅ Add test: `test_merge_readiness_is_blocked`
+- ✅ Add test: `test_merge_readiness_uncertainty`
 
 **Test Helper Consistency Guidance:**
 
