@@ -383,7 +383,7 @@ fn report_merge_dry_run(plan: &MergePlan) {
     }
 
     println!();
-    if plan.has_mergeable {
+    if plan.has_actionable {
         println!("{}", "Run without --dry-run to execute.".muted());
     } else {
         println!("{}", "No PRs are ready to merge.".muted());

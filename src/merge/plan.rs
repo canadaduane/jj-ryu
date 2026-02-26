@@ -22,6 +22,15 @@ pub struct PrInfo {
     pub readiness: MergeReadiness,
 }
 
+/// Confidence level for a merge attempt
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MergeConfidence {
+    /// All conditions verified - merge should succeed
+    Certain,
+    /// Some conditions unknown - merge may fail
+    Uncertain(String),
+}
+
 /// A single step in the merge plan
 #[derive(Debug, Clone)]
 pub enum MergeStep {
@@ -35,6 +44,8 @@ pub enum MergeStep {
         pr_title: String,
         /// Merge method to use
         method: MergeMethod,
+        /// Confidence level for this merge
+        confidence: MergeConfidence,
     },
     /// Skip this PR (not ready to merge)
     Skip {
@@ -68,8 +79,8 @@ pub struct MergePlan {
     pub bookmarks_to_clear: Vec<String>,
     /// First unmerged bookmark (for rebasing remaining stack)
     pub rebase_target: Option<String>,
-    /// Whether there are any mergeable PRs
-    pub has_mergeable: bool,
+    /// Whether there are any actionable PRs (including uncertain merges)
+    pub has_actionable: bool,
 }
 
 impl MergePlan {
@@ -155,23 +166,31 @@ pub fn create_merge_plan<S: BuildHasher>(
                 rebase_target = Some(bookmark_name.clone());
             }
         } else {
+            // Determine confidence based on uncertainty
+            let confidence = info
+                .readiness
+                .uncertainty()
+                .map_or(MergeConfidence::Certain, |reason| {
+                    MergeConfidence::Uncertain(reason.to_string())
+                });
             steps.push(MergeStep::Merge {
                 bookmark: bookmark_name.clone(),
                 pr_number: info.details.number,
                 pr_title: info.details.title.clone(),
                 method: MergeMethod::Squash,
+                confidence,
             });
             bookmarks_to_clear.push(bookmark_name.clone());
             // Continue to next PR (default: merge all consecutive mergeable)
         }
     }
 
-    let has_mergeable = steps.iter().any(|s| matches!(s, MergeStep::Merge { .. }));
+    let has_actionable = steps.iter().any(|s| matches!(s, MergeStep::Merge { .. }));
 
     MergePlan {
         steps,
         bookmarks_to_clear,
         rebase_target,
-        has_mergeable,
+        has_actionable,
     }
 }

@@ -108,6 +108,26 @@ The `if_not_else` lint requires using positive checks first:
 
 Phase 1 expanded to include platform implementation updates (originally Phase 2) because removing `can_merge()` required updating all call sites. Similarly, updating `plan.rs` to use `is_blocked()` was necessary even though planning logic changes were scheduled for Phase 3.
 
+### L11: Clippy Prefers `map_or` Over Match for Option Transformation
+
+```rust
+// Rejected (option_if_let_else lint):
+let confidence = match info.readiness.uncertainty() {
+    Some(reason) => MergeConfidence::Uncertain(reason.to_string()),
+    None => MergeConfidence::Certain,
+};
+
+// Accepted:
+let confidence = info.readiness.uncertainty()
+    .map_or(MergeConfidence::Certain, |reason| {
+        MergeConfidence::Uncertain(reason.to_string())
+    });
+```
+
+### L12: New Public Types Must Be Exported from mod.rs
+
+Adding `MergeConfidence` to `plan.rs` requires updating `src/merge/mod.rs` to include it in the `pub use` statement, otherwise external code (including tests) will fail with "unresolved import".
+
 ## Transitive Effect Analysis
 
 | Change | Directly Affects | Transitively Affects |
@@ -250,20 +270,23 @@ MergeReadiness {
 
 **GitLab Note:** GitLab always computes `merge_status` synchronously, so `details.mergeable` will always be `Some(true)` or `Some(false)`. The `uncertainties` vector will always be empty for GitLab, but the code structure remains consistent.
 
-### Phase 3: Update Merge Planning Logic 🔴
+### Phase 3: Update Merge Planning Logic ✅
 
 *Note: `create_merge_plan()` already updated to use `is_blocked()` in Phase 1. This phase adds `MergeConfidence` and updates `MergeStep`.*
 
 **Tasks:**
 
-- 🔴 Add `MergeConfidence` enum to `src/merge/plan.rs`
-- 🔴 Add `confidence: MergeConfidence` field to `MergeStep::Merge`
+- ✅ Add `MergeConfidence` enum to `src/merge/plan.rs`
+- ✅ Add `confidence: MergeConfidence` field to `MergeStep::Merge`
 - ✅ ~~Update `create_merge_plan()` to use `is_blocked()` and `uncertainty()`~~ (done in Phase 1)
-- 🔴 Set `confidence` field based on uncertainty presence in `create_merge_plan()`
-- 🔴 Rename `MergePlan.has_mergeable` to `has_actionable`
-- 🔴 Update `merge_count()` (no change needed - still counts `Merge` variants)
-- 🔴 Update `is_empty()` (no change needed - still checks for `Merge` variants)
-- 🔴 Update existing `merge_plan_test` tests to match on new `MergeStep::Merge` structure with `confidence` field
+- ✅ Set `confidence` field based on uncertainty presence in `create_merge_plan()`
+- ✅ Rename `MergePlan.has_mergeable` to `has_actionable`
+- ✅ Update `merge_count()` (no change needed - still counts `Merge` variants)
+- ✅ Update `is_empty()` (no change needed - still checks for `Merge` variants)
+- ✅ Update existing `merge_plan_test` tests to match on new `MergeStep::Merge` structure with `confidence` field
+- ✅ Export `MergeConfidence` from `src/merge/mod.rs`
+- ✅ Update `src/merge/execute.rs` to destructure `confidence` field (ignored for execution)
+- ✅ Update `src/cli/merge.rs` to use `has_actionable` instead of `has_mergeable`
 
 **New Types:**
 
@@ -338,13 +361,15 @@ MergeStep::Merge { bookmark, pr_number, pr_title, method, confidence } => {
 
 ### Phase 4: Update Execution and Display 🔴
 
+*Note: Some tasks moved here from Phase 3 were completed early. Remaining work focuses on display updates and contextual error handling.*
+
 **Tasks:**
 
-- 🔴 Update `execute_merge()` match arm to destructure `confidence` (ignore it for execution - merge attempt is the same)
+- ✅ ~~Update `execute_merge()` match arm to destructure `confidence`~~ (done in Phase 3)
+- ✅ ~~Update `src/cli/merge.rs` to use `plan.has_actionable` instead of `plan.has_mergeable`~~ (done in Phase 3)
+- 🔴 Update `report_merge_dry_run()` to display confidence level using correct styling methods
 - 🔴 Add `was_uncertain: bool` field to `MergeExecutionResult`
 - 🔴 Set `was_uncertain` when merge fails and confidence was `Uncertain`
-- 🔴 Update `report_merge_dry_run()` to display confidence level using correct styling methods
-- 🔴 Update `src/cli/merge.rs` to use `plan.has_actionable` instead of `plan.has_mergeable`
 - 🔴 Add contextual error messaging when uncertain merge fails
 
 **Display Format:**

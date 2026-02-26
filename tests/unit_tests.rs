@@ -807,7 +807,7 @@ mod sync_test {
 
 mod merge_plan_test {
     use crate::common::make_linear_stack;
-    use jj_ryu::merge::{create_merge_plan, MergePlanOptions, MergeStep, PrInfo};
+    use jj_ryu::merge::{create_merge_plan, MergeConfidence, MergePlanOptions, MergeStep, PrInfo};
     use jj_ryu::submit::analyze_submission;
     use jj_ryu::types::{MergeMethod, MergeReadiness, PrState, PullRequestDetails};
     use std::collections::HashMap;
@@ -884,7 +884,7 @@ mod merge_plan_test {
 
         assert!(!plan.is_empty());
         assert_eq!(plan.merge_count(), 1);
-        assert!(plan.has_mergeable);
+        assert!(plan.has_actionable);
         assert_eq!(plan.bookmarks_to_clear, vec!["feat-a"]);
         assert!(plan.rebase_target.is_none()); // Nothing left to rebase
 
@@ -895,11 +895,13 @@ mod merge_plan_test {
                 pr_number,
                 pr_title,
                 method,
+                confidence,
             } => {
                 assert_eq!(bookmark, "feat-a");
                 assert_eq!(*pr_number, 1);
                 assert_eq!(pr_title, "Add feature A");
                 assert_eq!(*method, MergeMethod::Squash);
+                assert_eq!(*confidence, MergeConfidence::Certain);
             }
             MergeStep::Skip { .. } => panic!("Expected Merge step, got Skip"),
         }
@@ -927,7 +929,7 @@ mod merge_plan_test {
         let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
 
         assert_eq!(plan.merge_count(), 3);
-        assert!(plan.has_mergeable);
+        assert!(plan.has_actionable);
         assert_eq!(
             plan.bookmarks_to_clear,
             vec!["feat-a", "feat-b", "feat-c"]
@@ -964,7 +966,7 @@ mod merge_plan_test {
 
         // Only feat-a should be merged, feat-b is skipped
         assert_eq!(plan.merge_count(), 1);
-        assert!(plan.has_mergeable);
+        assert!(plan.has_actionable);
         assert_eq!(plan.bookmarks_to_clear, vec!["feat-a"]);
         assert_eq!(plan.rebase_target, Some("feat-b".to_string()));
 
@@ -1001,7 +1003,7 @@ mod merge_plan_test {
 
         assert!(plan.is_empty());
         assert_eq!(plan.merge_count(), 0);
-        assert!(!plan.has_mergeable);
+        assert!(!plan.has_actionable);
         assert!(plan.bookmarks_to_clear.is_empty());
         assert_eq!(plan.rebase_target, Some("feat-a".to_string()));
 
@@ -1053,7 +1055,7 @@ mod merge_plan_test {
 
         assert!(plan.is_empty());
         assert_eq!(plan.merge_count(), 0);
-        assert!(!plan.has_mergeable);
+        assert!(!plan.has_actionable);
         assert!(plan.steps.is_empty());
     }
 
@@ -1094,7 +1096,7 @@ mod merge_plan_test {
         let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
 
         assert!(plan.is_empty());
-        assert!(!plan.has_mergeable);
+        assert!(!plan.has_actionable);
         assert!(matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"PR is a draft".to_string())));
     }
 

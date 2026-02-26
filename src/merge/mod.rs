@@ -9,4 +9,4 @@ mod execute;
 mod plan;
 
 pub use execute::{execute_merge, MergeExecutionResult};
-pub use plan::{create_merge_plan, MergePlan, MergePlanOptions, MergeStep, PrInfo};
+pub use plan::{create_merge_plan, MergeConfidence, MergePlan, MergePlanOptions, MergeStep, PrInfo};

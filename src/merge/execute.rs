@@ -70,6 +70,7 @@ pub async fn execute_merge(
                 pr_number,
                 pr_title,
                 method,
+                confidence: _, // Confidence doesn't affect execution - we attempt the merge regardless
             } => {
                 progress
                     .on_message(&format!("🔀 Merging PR #{pr_number}: {pr_title}"))
