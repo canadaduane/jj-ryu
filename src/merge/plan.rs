@@ -47,6 +47,20 @@ pub enum MergeStep {
         /// Confidence level for this merge
         confidence: MergeConfidence,
     },
+    /// Retarget this PR's base branch to trunk before merging
+    ///
+    /// After merging PR N, PR N+1's base branch (which was PR N's branch)
+    /// must be retargeted to trunk so it merges into trunk, not the defunct branch.
+    RetargetBase {
+        /// Bookmark name (for display)
+        bookmark: String,
+        /// PR number to retarget
+        pr_number: u64,
+        /// Current base branch (for display: "feat-a" → "main")
+        old_base: String,
+        /// New base branch (trunk)
+        new_base: String,
+    },
     /// Skip this PR (not ready to merge)
     Skip {
         /// Bookmark name
@@ -62,7 +76,9 @@ impl MergeStep {
     /// Get the bookmark name for this step
     pub fn bookmark_name(&self) -> &str {
         match self {
-            Self::Merge { bookmark, .. } | Self::Skip { bookmark, .. } => bookmark,
+            Self::Merge { bookmark, .. }
+            | Self::RetargetBase { bookmark, .. }
+            | Self::Skip { bookmark, .. } => bookmark,
         }
     }
 }
@@ -81,6 +97,14 @@ impl std::fmt::Display for MergeStep {
                     MergeConfidence::Uncertain(_) => "merge (uncertain)",
                 };
                 write!(f, "{prefix} PR #{pr_number}: {pr_title}")
+            }
+            Self::RetargetBase {
+                pr_number,
+                old_base,
+                new_base,
+                ..
+            } => {
+                write!(f, "retarget PR #{pr_number}: {old_base} → {new_base}")
             }
             Self::Skip {
                 pr_number,
@@ -120,6 +144,8 @@ pub struct MergePlan {
     pub rebase_target: Option<String>,
     /// Whether there are any actionable PRs (including uncertain merges)
     pub has_actionable: bool,
+    /// Trunk branch name (e.g., "main") - needed for retarget steps
+    pub trunk_branch: String,
 }
 
 impl MergePlan {
@@ -144,10 +170,15 @@ impl MergePlan {
 /// This function takes the submission analysis and pre-fetched PR info,
 /// and produces a plan describing what merges should be performed.
 ///
+/// After each merge (except the last), a `RetargetBase` step is inserted
+/// to retarget the next PR's base to trunk. This is necessary because
+/// GitHub's merge API merges into the PR's current base branch, not trunk.
+///
 /// # Arguments
 /// * `analysis` - The submission analysis from `analyze_submission()`
 /// * `pr_info` - Map of bookmark name to PR info, pre-fetched by caller
 /// * `options` - Planning options (target bookmark, etc.)
+/// * `trunk_branch` - The trunk branch name (e.g., "main")
 ///
 /// # Returns
 /// A `MergePlan` describing the merge operations to perform
@@ -156,6 +187,7 @@ pub fn create_merge_plan<S: BuildHasher>(
     analysis: &SubmissionAnalysis,
     pr_info: &HashMap<String, PrInfo, S>,
     options: &MergePlanOptions,
+    trunk_branch: &str,
 ) -> MergePlan {
     let mut steps = Vec::new();
     let mut bookmarks_to_clear = Vec::new();
@@ -163,8 +195,11 @@ pub fn create_merge_plan<S: BuildHasher>(
     let mut hit_blocker = false;
     let mut hit_target = false;
 
+    // Collect mergeable bookmarks first (we need lookahead for retarget steps)
+    let mut mergeable_indices: Vec<usize> = Vec::new();
+
     // Process in stack order (trunk → leaf)
-    for segment in &analysis.segments {
+    for (idx, segment) in analysis.segments.iter().enumerate() {
         let bookmark_name = &segment.bookmark.name;
 
         // Check if we've passed the target bookmark
@@ -205,6 +240,9 @@ pub fn create_merge_plan<S: BuildHasher>(
                 rebase_target = Some(bookmark_name.clone());
             }
         } else {
+            // Track this as mergeable for retarget step insertion
+            mergeable_indices.push(idx);
+
             // Determine confidence based on uncertainty
             let confidence = info
                 .readiness
@@ -220,16 +258,55 @@ pub fn create_merge_plan<S: BuildHasher>(
                 confidence,
             });
             bookmarks_to_clear.push(bookmark_name.clone());
-            // Continue to next PR (default: merge all consecutive mergeable)
         }
     }
 
-    let has_actionable = steps.iter().any(|s| matches!(s, MergeStep::Merge { .. }));
+    // Now insert RetargetBase steps between consecutive Merge steps
+    // We need to do this after collecting all steps because we need lookahead
+    let mut final_steps = Vec::new();
+    let mut merge_step_count = 0;
+
+    for step in steps {
+        match &step {
+            MergeStep::Merge { .. } => {
+                final_steps.push(step);
+                merge_step_count += 1;
+
+                // Check if there's a next mergeable PR that needs retargeting
+                if merge_step_count < mergeable_indices.len() {
+                    let next_idx = mergeable_indices[merge_step_count];
+                    let next_segment = &analysis.segments[next_idx];
+                    let next_bookmark = &next_segment.bookmark.name;
+
+                    if let Some(next_info) = pr_info.get(next_bookmark) {
+                        let old_base = &next_info.details.base_ref;
+                        // Only add retarget if the base isn't already trunk
+                        if old_base != trunk_branch {
+                            final_steps.push(MergeStep::RetargetBase {
+                                bookmark: next_bookmark.clone(),
+                                pr_number: next_info.details.number,
+                                old_base: old_base.clone(),
+                                new_base: trunk_branch.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            MergeStep::Skip { .. } | MergeStep::RetargetBase { .. } => {
+                final_steps.push(step);
+            }
+        }
+    }
+
+    let has_actionable = final_steps
+        .iter()
+        .any(|s| matches!(s, MergeStep::Merge { .. }));
 
     MergePlan {
-        steps,
+        steps: final_steps,
         bookmarks_to_clear,
         rebase_target,
         has_actionable,
+        trunk_branch: trunk_branch.to_string(),
     }
 }

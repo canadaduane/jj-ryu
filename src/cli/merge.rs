@@ -88,7 +88,7 @@ pub async fn run_merge(path: &Path, remote: Option<&str>, options: MergeOptions)
     let plan_options = MergePlanOptions {
         target_bookmark: None, // Merge all consecutive mergeable PRs
     };
-    let merge_plan = create_merge_plan(&analysis, &pr_info_map, &plan_options);
+    let merge_plan = create_merge_plan(&analysis, &pr_info_map, &plan_options, &ctx.default_branch);
 
     // =========================================================================
     // Phase 3: EXECUTE - Effectful operations
@@ -380,6 +380,21 @@ fn report_merge_dry_run(plan: &MergePlan) {
                     }
                 }
                 println!("    Bookmark: {}", bookmark.accent());
+            }
+            MergeStep::RetargetBase {
+                bookmark,
+                pr_number,
+                old_base,
+                new_base,
+            } => {
+                println!(
+                    "  {} PR #{} ({}): {} → {}",
+                    "↪ Would retarget".accent(),
+                    pr_number,
+                    bookmark,
+                    old_base.muted(),
+                    new_base.accent()
+                );
             }
             MergeStep::Skip {
                 bookmark,

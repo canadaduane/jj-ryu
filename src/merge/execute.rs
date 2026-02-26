@@ -103,6 +103,36 @@ pub async fn execute_merge(
                     }
                 }
             }
+            MergeStep::RetargetBase {
+                bookmark,
+                pr_number,
+                old_base,
+                new_base,
+            } => {
+                progress
+                    .on_message(&format!(
+                        "↪️ Retargeting PR #{pr_number} ({bookmark}): {old_base} → {new_base}"
+                    ))
+                    .await;
+
+                match platform.update_pr_base(*pr_number, new_base).await {
+                    Ok(_) => {
+                        progress
+                            .on_message(&format!("✅ Retargeted to {new_base}"))
+                            .await;
+                        // Continue to next step - don't add to merged_bookmarks
+                        // (retarget is a preparatory step, not a merge)
+                    }
+                    Err(e) => {
+                        // Retarget failure is fatal - we can't merge the next PR
+                        // with the wrong base
+                        result.failed_bookmark = Some(bookmark.clone());
+                        result.error_message = Some(format!("Retarget failed: {e}"));
+                        result.was_uncertain = false;
+                        break;
+                    }
+                }
+            }
             MergeStep::Skip {
                 bookmark,
                 pr_number,

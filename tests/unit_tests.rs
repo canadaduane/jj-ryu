@@ -906,7 +906,7 @@ mod merge_plan_test {
             make_mergeable_pr_info("feat-a", 1, "Add feature A"),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(!plan.is_empty());
         assert_eq!(plan.merge_count(), 1);
@@ -930,6 +930,7 @@ mod merge_plan_test {
                 assert_eq!(*confidence, MergeConfidence::Certain);
             }
             MergeStep::Skip { .. } => panic!("Expected Merge step, got Skip"),
+            MergeStep::RetargetBase { .. } => panic!("Expected Merge step, got RetargetBase"),
         }
     }
 
@@ -952,7 +953,7 @@ mod merge_plan_test {
             make_mergeable_pr_info("feat-c", 3, "Add feature C"),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert_eq!(plan.merge_count(), 3);
         assert!(plan.has_actionable);
@@ -988,7 +989,7 @@ mod merge_plan_test {
             make_mergeable_pr_info("feat-c", 3, "Add feature C"),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         // Only feat-a should be merged, feat-b is skipped
         assert_eq!(plan.merge_count(), 1);
@@ -1025,7 +1026,7 @@ mod merge_plan_test {
             make_mergeable_pr_info("feat-b", 2, "Add feature B"),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(plan.is_empty());
         assert_eq!(plan.merge_count(), 0);
@@ -1061,7 +1062,7 @@ mod merge_plan_test {
         let options = MergePlanOptions {
             target_bookmark: Some("feat-b".to_string()),
         };
-        let plan = create_merge_plan(&analysis, &pr_info, &options);
+        let plan = create_merge_plan(&analysis, &pr_info, &options, "main");
 
         // Should merge feat-a and feat-b, but not feat-c
         assert_eq!(plan.merge_count(), 2);
@@ -1077,7 +1078,7 @@ mod merge_plan_test {
         // No PR info provided
         let pr_info: HashMap<String, PrInfo> = HashMap::new();
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(plan.is_empty());
         assert_eq!(plan.merge_count(), 0);
@@ -1098,7 +1099,7 @@ mod merge_plan_test {
             make_mergeable_pr_info("feat-b", 2, "Add feature B"),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         // feat-a has no PR, so it's skipped. feat-b can merge.
         // But wait - the plan processes in stack order and skips bookmarks without PRs
@@ -1119,7 +1120,7 @@ mod merge_plan_test {
         info.readiness.blocking_reasons = vec!["PR is a draft".to_string()];
         pr_info.insert("feat-a".to_string(), info);
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(plan.is_empty());
         assert!(!plan.has_actionable);
@@ -1137,7 +1138,7 @@ mod merge_plan_test {
             make_blocked_pr_info("feat-a", 1, "Add feature A", vec!["Not approved".to_string()]),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(plan.is_empty());
         assert!(matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"Not approved".to_string())));
@@ -1154,7 +1155,7 @@ mod merge_plan_test {
         info.readiness.blocking_reasons = vec!["CI not passing".to_string()];
         pr_info.insert("feat-a".to_string(), info);
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(plan.is_empty());
         assert!(matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"CI not passing".to_string())));
@@ -1171,7 +1172,7 @@ mod merge_plan_test {
         info.readiness.blocking_reasons = vec!["Has merge conflicts".to_string()];
         pr_info.insert("feat-a".to_string(), info);
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(plan.is_empty());
         assert!(matches!(&plan.steps[0], MergeStep::Skip { reasons, .. } if reasons.contains(&"Has merge conflicts".to_string())));
@@ -1188,7 +1189,7 @@ mod merge_plan_test {
             make_blocked_pr_info("feat-a", 1, "Add feature A", vec!["Not approved".to_string()]),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         // is_empty() should return true when there are only Skip steps
         assert!(plan.is_empty());
@@ -1215,7 +1216,7 @@ mod merge_plan_test {
             make_mergeable_pr_info("feat-c", 3, "Add feature C"),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         // merge_count should only count Merge steps, not Skip steps
         assert_eq!(plan.merge_count(), 1);
@@ -1234,7 +1235,7 @@ mod merge_plan_test {
             make_uncertain_pr_info("feat-a", 1, "Feature A"),
         );
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(!plan.is_empty());
         assert!(plan.has_actionable);
@@ -1261,7 +1262,7 @@ mod merge_plan_test {
         info.readiness.blocking_reasons = vec!["Not approved".to_string()];
         pr_info.insert("feat-a".to_string(), info);
 
-        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default());
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
 
         assert!(plan.is_empty()); // No Merge steps
         assert!(
@@ -1327,6 +1328,191 @@ mod merge_plan_test {
         r.uncertainties = vec!["Reason 1".to_string(), "Reason 2".to_string()];
         assert_eq!(r.uncertainty(), Some("Reason 1")); // Returns first only
     }
+
+    // =========================================================================
+    // Retarget step generation tests
+    // =========================================================================
+
+    /// Helper to create a PrInfo with a specific base_ref (for retarget testing)
+    fn make_mergeable_pr_info_with_base(
+        bookmark: &str,
+        pr_number: u64,
+        title: &str,
+        base_ref: &str,
+    ) -> PrInfo {
+        PrInfo {
+            bookmark: bookmark.to_string(),
+            details: PullRequestDetails {
+                number: pr_number,
+                title: title.to_string(),
+                body: Some(format!("PR body for {bookmark}")),
+                state: PrState::Open,
+                is_draft: false,
+                mergeable: Some(true),
+                head_ref: bookmark.to_string(),
+                base_ref: base_ref.to_string(),
+                html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+            },
+            readiness: MergeReadiness {
+                is_approved: true,
+                ci_passed: true,
+                is_mergeable: Some(true),
+                is_draft: false,
+                blocking_reasons: vec![],
+                uncertainties: vec![],
+            },
+        }
+    }
+
+    #[test]
+    fn test_create_merge_plan_generates_retarget_steps() {
+        // 3-PR stack, all mergeable
+        // Expected: Merge(1), Retarget(2), Merge(2), Retarget(3), Merge(3)
+        let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        // PR1 targets main (correct)
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info_with_base("feat-a", 1, "Add feature A", "main"),
+        );
+        // PR2 targets feat-a (will need retarget after PR1 merges)
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_mergeable_pr_info_with_base("feat-b", 2, "Add feature B", "feat-a"),
+        );
+        // PR3 targets feat-b (will need retarget after PR2 merges)
+        pr_info.insert(
+            "feat-c".to_string(),
+            make_mergeable_pr_info_with_base("feat-c", 3, "Add feature C", "feat-b"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
+
+        // Should have 5 steps: Merge, Retarget, Merge, Retarget, Merge
+        assert_eq!(plan.steps.len(), 5);
+        assert_eq!(plan.merge_count(), 3);
+
+        // Step 0: Merge PR1
+        assert!(matches!(&plan.steps[0], MergeStep::Merge { pr_number: 1, .. }));
+
+        // Step 1: Retarget PR2 from feat-a to main
+        match &plan.steps[1] {
+            MergeStep::RetargetBase {
+                pr_number,
+                old_base,
+                new_base,
+                ..
+            } => {
+                assert_eq!(*pr_number, 2);
+                assert_eq!(old_base, "feat-a");
+                assert_eq!(new_base, "main");
+            }
+            _ => panic!("Expected RetargetBase step at index 1"),
+        }
+
+        // Step 2: Merge PR2
+        assert!(matches!(&plan.steps[2], MergeStep::Merge { pr_number: 2, .. }));
+
+        // Step 3: Retarget PR3 from feat-b to main
+        match &plan.steps[3] {
+            MergeStep::RetargetBase {
+                pr_number,
+                old_base,
+                new_base,
+                ..
+            } => {
+                assert_eq!(*pr_number, 3);
+                assert_eq!(old_base, "feat-b");
+                assert_eq!(new_base, "main");
+            }
+            _ => panic!("Expected RetargetBase step at index 3"),
+        }
+
+        // Step 4: Merge PR3
+        assert!(matches!(&plan.steps[4], MergeStep::Merge { pr_number: 3, .. }));
+
+        // Verify trunk_branch is set
+        assert_eq!(plan.trunk_branch, "main");
+    }
+
+    #[test]
+    fn test_create_merge_plan_no_retarget_after_skip() {
+        // 3-PR stack, PR2 blocked
+        // Expected: Merge(1), Skip(2) - no retarget because we stop at skip
+        let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info_with_base("feat-a", 1, "Add feature A", "main"),
+        );
+        // PR2 is blocked
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_blocked_pr_info("feat-b", 2, "Add feature B", vec!["Not approved".to_string()]),
+        );
+        pr_info.insert(
+            "feat-c".to_string(),
+            make_mergeable_pr_info_with_base("feat-c", 3, "Add feature C", "feat-b"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
+
+        // Should have 2 steps: Merge(1), Skip(2) - no retarget steps
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.merge_count(), 1);
+
+        assert!(matches!(&plan.steps[0], MergeStep::Merge { pr_number: 1, .. }));
+        assert!(matches!(&plan.steps[1], MergeStep::Skip { pr_number: 2, .. }));
+    }
+
+    #[test]
+    fn test_create_merge_plan_single_pr_no_retarget() {
+        // 1-PR stack - nothing to retarget after last merge
+        let graph = make_linear_stack(&["feat-a"]);
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info_with_base("feat-a", 1, "Add feature A", "main"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
+
+        // Should have 1 step: Merge only, no retarget
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.merge_count(), 1);
+        assert!(matches!(&plan.steps[0], MergeStep::Merge { pr_number: 1, .. }));
+    }
+
+    #[test]
+    fn test_create_merge_plan_skips_redundant_retarget() {
+        // If PR2 already targets main, no retarget needed
+        let graph = make_linear_stack(&["feat-a", "feat-b"]);
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
+
+        let mut pr_info = HashMap::new();
+        pr_info.insert(
+            "feat-a".to_string(),
+            make_mergeable_pr_info_with_base("feat-a", 1, "Add feature A", "main"),
+        );
+        // PR2 already targets main (unusual but possible)
+        pr_info.insert(
+            "feat-b".to_string(),
+            make_mergeable_pr_info_with_base("feat-b", 2, "Add feature B", "main"),
+        );
+
+        let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
+
+        // Should have 2 steps: Merge, Merge - no retarget because base is already main
+        assert_eq!(plan.steps.len(), 2);
+        assert!(matches!(&plan.steps[0], MergeStep::Merge { pr_number: 1, .. }));
+        assert!(matches!(&plan.steps[1], MergeStep::Merge { pr_number: 2, .. }));
+    }
 }
 
 mod merge_execution_test {
@@ -1355,6 +1541,7 @@ mod merge_execution_test {
             bookmarks_to_clear: vec!["feat-a".to_string()],
             rebase_target: None,
             has_actionable: true,
+            trunk_branch: "main".to_string(),
         };
 
         let progress = NoopProgress;
@@ -1393,6 +1580,7 @@ mod merge_execution_test {
             bookmarks_to_clear: vec!["feat-a".to_string()],
             rebase_target: None,
             has_actionable: true,
+            trunk_branch: "main".to_string(),
         };
 
         let progress = NoopProgress;
@@ -1430,6 +1618,7 @@ mod merge_execution_test {
             bookmarks_to_clear: vec!["feat-a".to_string()],
             rebase_target: None,
             has_actionable: true,
+            trunk_branch: "main".to_string(),
         };
 
         let progress = NoopProgress;
@@ -1439,5 +1628,104 @@ mod merge_execution_test {
         assert!(!result.is_success());
         assert!(!result.was_uncertain); // Should be false for certain merges
         assert_eq!(result.failed_bookmark, Some("feat-a".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_execute_merge_calls_retarget() {
+        // Test that RetargetBase steps call update_pr_base
+        let mock = MockPlatformService::with_config(github_config());
+        mock.setup_mergeable_pr(1, "feat-a", "Feature A");
+        mock.setup_mergeable_pr(2, "feat-b", "Feature B");
+
+        let plan = MergePlan {
+            steps: vec![
+                MergeStep::Merge {
+                    bookmark: "feat-a".to_string(),
+                    pr_number: 1,
+                    pr_title: "Feature A".to_string(),
+                    method: MergeMethod::Squash,
+                    confidence: MergeConfidence::Certain,
+                },
+                MergeStep::RetargetBase {
+                    bookmark: "feat-b".to_string(),
+                    pr_number: 2,
+                    old_base: "feat-a".to_string(),
+                    new_base: "main".to_string(),
+                },
+                MergeStep::Merge {
+                    bookmark: "feat-b".to_string(),
+                    pr_number: 2,
+                    pr_title: "Feature B".to_string(),
+                    method: MergeMethod::Squash,
+                    confidence: MergeConfidence::Certain,
+                },
+            ],
+            bookmarks_to_clear: vec!["feat-a".to_string(), "feat-b".to_string()],
+            rebase_target: None,
+            has_actionable: true,
+            trunk_branch: "main".to_string(),
+        };
+
+        let progress = NoopProgress;
+        let result = execute_merge(&plan, &mock, &progress).await.unwrap();
+
+        // Verify: both merges succeeded
+        assert!(result.is_success());
+        assert_eq!(result.merged_bookmarks, vec!["feat-a", "feat-b"]);
+
+        // Verify: update_pr_base was called for PR2
+        mock.assert_update_base_called(2, "main");
+    }
+
+    #[tokio::test]
+    async fn test_execute_merge_stops_on_retarget_failure() {
+        // Test that retarget failure stops execution
+        let mock = MockPlatformService::with_config(github_config());
+        mock.setup_mergeable_pr(1, "feat-a", "Feature A");
+        mock.setup_mergeable_pr(2, "feat-b", "Feature B");
+        // Make the retarget fail
+        mock.fail_update_base("API rate limit exceeded");
+
+        let plan = MergePlan {
+            steps: vec![
+                MergeStep::Merge {
+                    bookmark: "feat-a".to_string(),
+                    pr_number: 1,
+                    pr_title: "Feature A".to_string(),
+                    method: MergeMethod::Squash,
+                    confidence: MergeConfidence::Certain,
+                },
+                MergeStep::RetargetBase {
+                    bookmark: "feat-b".to_string(),
+                    pr_number: 2,
+                    old_base: "feat-a".to_string(),
+                    new_base: "main".to_string(),
+                },
+                MergeStep::Merge {
+                    bookmark: "feat-b".to_string(),
+                    pr_number: 2,
+                    pr_title: "Feature B".to_string(),
+                    method: MergeMethod::Squash,
+                    confidence: MergeConfidence::Certain,
+                },
+            ],
+            bookmarks_to_clear: vec!["feat-a".to_string(), "feat-b".to_string()],
+            rebase_target: None,
+            has_actionable: true,
+            trunk_branch: "main".to_string(),
+        };
+
+        let progress = NoopProgress;
+        let result = execute_merge(&plan, &mock, &progress).await.unwrap();
+
+        // Verify: first merge succeeded but stopped at retarget failure
+        assert!(!result.is_success());
+        assert_eq!(result.merged_bookmarks, vec!["feat-a"]); // Only first merged
+        assert_eq!(result.failed_bookmark, Some("feat-b".to_string()));
+        assert!(result.error_message.as_ref().unwrap().contains("Retarget failed"));
+        assert!(!result.was_uncertain); // Retarget failures are not uncertain
+
+        // Verify: merge was called only once (for PR1)
+        assert_eq!(mock.merge_call_count(), 1);
     }
 }

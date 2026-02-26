@@ -1,7 +1,7 @@
 # Plan: Retarget PRs During Stack Merge
 
 **Created:** 2026-02-26
-**Status:** 🟡 In Progress
+**Status:** ✅ Complete
 
 ## Background
 
@@ -140,13 +140,13 @@ Both modules call `platform.update_pr_base()`. The platform trait is the correct
 
 ## Phases
 
-### Phase 1: Extend Type System 🔴
+### Phase 1: Extend Type System ✅
 
 **Goal**: Add `RetargetBase` variant and `trunk_branch` field.
 
 #### Tasks
 
-1. 🔴 Add `RetargetBase` variant to `MergeStep` in `src/merge/plan.rs`:
+1. ✅ Add `RetargetBase` variant to `MergeStep` in `src/merge/plan.rs`:
    ```rust
    /// Retarget this PR's base branch before merging
    RetargetBase {
@@ -161,37 +161,37 @@ Both modules call `platform.update_pr_base()`. The platform trait is the correct
    },
    ```
 
-2. 🔴 Add `trunk_branch: String` field to `MergePlan` struct
+2. ✅ Add `trunk_branch: String` field to `MergePlan` struct
 
-3. 🔴 Update `create_merge_plan()` signature to accept `trunk_branch: &str` parameter
+3. ✅ Update `create_merge_plan()` signature to accept `trunk_branch: &str` parameter
 
-4. 🔴 Fix compilation errors in `cli/merge.rs` (pass `default_branch` to planner)
+4. ✅ Fix compilation errors in `cli/merge.rs` (pass `default_branch` to planner)
 
-5. 🔴 Fix compilation errors in unit tests (add `trunk_branch` to manual `MergePlan` construction)
+5. ✅ Fix compilation errors in unit tests (add `trunk_branch` to manual `MergePlan` construction)
 
 6. ✅ Add `bookmark_name(&self) -> &str` method to `MergeStep` (pattern consistency with `ExecutionStep`)
 
 7. ✅ Add `std::fmt::Display` impl for `MergeStep` (pattern consistency with `ExecutionStep`)
 
-### Phase 2: Generate Retarget Steps in Planning 🔴
+### Phase 2: Generate Retarget Steps in Planning ✅
 
 **Goal**: `create_merge_plan()` produces interleaved Merge/RetargetBase steps.
 
 #### Tasks
 
-1. 🔴 Refactor loop to use indexed iteration (need `idx` for lookahead)
+1. ✅ Refactor loop to use indexed iteration (need `idx` for lookahead)
 
-2. 🔴 After each `MergeStep::Merge` (except the last), check if there's a next mergeable PR
+2. ✅ After each `MergeStep::Merge` (except the last), check if there's a next mergeable PR
 
-3. 🔴 If next PR exists, insert `MergeStep::RetargetBase` with:
+3. ✅ If next PR exists, insert `MergeStep::RetargetBase` with:
    - `bookmark`: next PR's bookmark
    - `pr_number`: next PR's number
    - `old_base`: next PR's current `details.base_ref`
    - `new_base`: `trunk_branch` parameter
 
-4. 🔴 Ensure `Skip` steps do NOT generate retarget steps (we stop at first skip anyway)
+4. ✅ Ensure `Skip` steps do NOT generate retarget steps (we stop at first skip anyway)
 
-5. 🔴 Only generate retarget if `old_base != new_base` (skip redundant retargets)
+5. ✅ Only generate retarget if `old_base != new_base` (skip redundant retargets)
 
 **Key Logic** (in `create_merge_plan()`):
 ```rust
@@ -210,13 +210,13 @@ if !hit_blocker {
 }
 ```
 
-### Phase 3: Execute Retarget Steps 🔴
+### Phase 3: Execute Retarget Steps ✅
 
 **Goal**: `execute_merge()` handles `RetargetBase` variant.
 
 #### Tasks
 
-1. 🔴 Add match arm for `MergeStep::RetargetBase` in `execute_merge()`:
+1. ✅ Add match arm for `MergeStep::RetargetBase` in `execute_merge()`:
    ```rust
    MergeStep::RetargetBase { bookmark, pr_number, old_base, new_base } => {
        progress.on_message(&format!(
@@ -237,17 +237,17 @@ if !hit_blocker {
    }
    ```
 
-2. 🔴 Retarget failures are fatal—set `failed_bookmark` and break
+2. ✅ Retarget failures are fatal—set `failed_bookmark` and break
 
-3. 🔴 Do NOT add retargeted bookmarks to `merged_bookmarks` (they're not merged yet)
+3. ✅ Do NOT add retargeted bookmarks to `merged_bookmarks` (they're not merged yet)
 
-### Phase 4: Update Dry-Run Display 🔴
+### Phase 4: Update Dry-Run Display ✅
 
 **Goal**: Dry-run output shows retarget steps.
 
 #### Tasks
 
-1. 🔴 Add match arm in `report_merge_dry_run()` for `RetargetBase`:
+1. ✅ Add match arm in `report_merge_dry_run()` for `RetargetBase`:
    ```rust
    MergeStep::RetargetBase { bookmark, pr_number, old_base, new_base } => {
        println!(
@@ -261,55 +261,59 @@ if !hit_blocker {
    }
    ```
 
-### Phase 5: Add Tests 🔴
+### Phase 5: Add Tests ✅
 
 **Goal**: Verify retarget step generation and execution.
 
 #### Tasks
 
-1. 🔴 **Unit test**: `test_create_merge_plan_generates_retarget_steps`
+1. ✅ **Unit test**: `test_create_merge_plan_generates_retarget_steps`
    - 3-PR stack, all mergeable
    - Verify plan has: Merge, Retarget, Merge, Retarget, Merge (5 steps)
    - Verify retarget `new_base` is trunk branch
 
-2. 🔴 **Unit test**: `test_create_merge_plan_no_retarget_after_skip`
+2. ✅ **Unit test**: `test_create_merge_plan_no_retarget_after_skip`
    - 3-PR stack, PR2 blocked
    - Verify plan has: Merge (PR1), Skip (PR2), no retarget steps
    - Because we stop at skip, no retarget needed
 
-3. 🔴 **Unit test**: `test_create_merge_plan_single_pr_no_retarget`
+3. ✅ **Unit test**: `test_create_merge_plan_single_pr_no_retarget`
    - 1-PR stack
    - Verify plan has: Merge only, no retarget
    - Edge case: nothing to retarget after last merge
 
-4. 🔴 **Execution test**: `test_execute_merge_calls_retarget`
+4. ✅ **Unit test**: `test_create_merge_plan_skips_redundant_retarget`
+   - 2-PR stack, PR2 already targets main
+   - Verify no retarget step generated
+
+5. ✅ **Execution test**: `test_execute_merge_calls_retarget`
    - Mock platform with 2 PRs
    - Execute plan with Merge + Retarget + Merge
    - Assert `update_pr_base` was called with correct args
    - Assert both PRs merged successfully
 
-5. 🔴 **Execution test**: `test_execute_merge_stops_on_retarget_failure`
+6. ✅ **Execution test**: `test_execute_merge_stops_on_retarget_failure`
    - Mock platform with retarget failure injected
    - Verify execution stops, `failed_bookmark` is set
    - Verify first merge succeeded but second didn't execute
 
-### Phase 6: Update Documentation 🔴
+### Phase 6: Update Documentation ✅
 
 **Goal**: Document the retarget behavior and architectural decisions.
 
 #### Tasks
 
-1. 🔴 Update `src/merge/AGENTS.md`:
+1. ✅ Update `src/merge/AGENTS.md`:
    - Add `RetargetBase` to core types section
    - Document step interleaving pattern
    - Add "retarget failure is fatal" to anti-patterns
 
-2. 🔴 Add "Why Not Share Code with submit?" section to `src/merge/AGENTS.md`:
+2. ✅ Add "Why Not Share Code with submit?" section to `src/merge/AGENTS.md`:
    - Explain different execution semantics (soft errors, partial success, constraint ordering)
    - Clarify that platform API is the shared layer
    - Prevent future "unification" attempts
 
-3. 🔴 Update `docs/merge.md` (if exists) with user-facing explanation
+3. ⛔ Update `docs/merge.md` (if exists) with user-facing explanation — file does not exist
 
 ## Tests Summary
 
@@ -318,6 +322,7 @@ if !hit_blocker {
 | `test_create_merge_plan_generates_retarget_steps` | Unit | Verify interleaved step generation |
 | `test_create_merge_plan_no_retarget_after_skip` | Unit | Verify skip stops retarget generation |
 | `test_create_merge_plan_single_pr_no_retarget` | Unit | Edge case: single PR |
+| `test_create_merge_plan_skips_redundant_retarget` | Unit | Edge case: base already trunk |
 | `test_execute_merge_calls_retarget` | Async | Verify platform API called correctly |
 | `test_execute_merge_stops_on_retarget_failure` | Async | Verify failure handling |
 
@@ -384,7 +389,7 @@ The key insight is that GitHub's merge API merges into the PR's *current* base, 
 
 ---
 
-### PR 2: `fix(merge): retarget PRs to trunk during stack merge` 🔴
+### PR 2: `fix(merge): retarget PRs to trunk during stack merge` ✅
 
 **Type**: Bug fix
 
@@ -427,3 +432,90 @@ This is a **bugfix** that changes merge behavior. No public API changes—only i
 **User-visible changes**:
 - Dry-run output now shows "↪ Would retarget" steps between merges
 - Multi-PR stack merges now work correctly (all PRs reach trunk)
+
+---
+
+## Amendment: Test and Code Quality Improvements
+
+**Discovered during**: Post-implementation review (after Phase 5)
+**Target phase**: New Phase 7 (cleanup)
+**Status**: 🔴 Not Started
+
+### Preamble
+
+During trenchant review of the completed implementation, several issues were identified:
+
+1. **Test passes for wrong reason**: `test_create_merge_plan_multiple_consecutive_mergeable` asserts "all steps should be Merge steps" and passes—but only because the test helper `make_mergeable_pr_info` sets `base_ref: "main"` for all PRs, triggering the "skip redundant retarget" optimization. The test doesn't exercise the real-world scenario where PRs have stacked base refs.
+
+2. **Helper creates unrealistic data**: `make_mergeable_pr_info` sets `base_ref: "main"` for all PRs, which doesn't model real stacked PR scenarios. This is why we needed `make_mergeable_pr_info_with_base` for the new retarget tests.
+
+3. **Dead code in match arm**: The second-pass loop has `MergeStep::RetargetBase { .. }` in a match arm, but `RetargetBase` can never appear in the input `steps` vector—it's only created during the second pass.
+
+### Learnings
+
+- **L8**: Test helpers that create "convenient" default values can mask bugs. Explicit base refs are necessary to test retarget logic.
+- **L9**: When adding a new enum variant, audit existing match arms to ensure they're not handling impossible cases.
+
+### Phase 7: Test and Code Quality Cleanup 🔴
+
+**Goal**: Strengthen test coverage and remove dead code.
+
+#### Tasks
+
+1. 🔴 Update `test_create_merge_plan_multiple_consecutive_mergeable` to use realistic base refs:
+   - PR1 targets `main`, PR2 targets `feat-a`, PR3 targets `feat-b`
+   - Assert 5 steps: Merge, Retarget, Merge, Retarget, Merge
+   - This ensures the test exercises the actual retarget logic
+
+2. 🔴 Add comment to `make_mergeable_pr_info` explaining it creates "flat" PRs (all targeting main):
+   ```rust
+   /// Helper to create a mergeable PrInfo.
+   /// NOTE: Sets base_ref to "main" for all PRs. For realistic stacked PR scenarios
+   /// where PRs target their parent's branch, use `make_mergeable_pr_info_with_base`.
+   ```
+
+3. 🔴 Remove dead `RetargetBase` case from second-pass match arm in `create_merge_plan()`:
+   ```rust
+   // Change from:
+   MergeStep::Skip { .. } | MergeStep::RetargetBase { .. } => { ... }
+   // To:
+   MergeStep::Skip { .. } => { ... }
+   ```
+
+4. 🔴 Add comment explaining the two-pass algorithm in `create_merge_plan()`:
+   ```rust
+   // Two-pass algorithm:
+   // Pass 1: Collect all Merge/Skip steps and track indices of mergeable PRs
+   // Pass 2: Interleave RetargetBase steps between consecutive Merge steps
+   // 
+   // This is necessary because we need lookahead to know if there's a "next"
+   // mergeable PR that requires retargeting. A single-pass approach would
+   // require complex state management or iterator peeking.
+   ```
+
+### Tests Affected
+
+| Test | Change |
+|------|--------|
+| `test_create_merge_plan_multiple_consecutive_mergeable` | Update to expect 5 steps with retargets |
+
+### PR Stack Update
+
+This amendment adds **PR 3** to the stack:
+
+### PR 3: `test(merge): strengthen retarget test coverage` 🔴
+
+**Type**: Test improvement / cleanup
+
+**Scope**: Fix test that passes for wrong reason, add documentation
+
+**Changes**:
+- Update `test_create_merge_plan_multiple_consecutive_mergeable` with realistic base refs
+- Add documentation comments to test helpers
+- Remove dead code in `create_merge_plan()`
+- Add algorithm explanation comment
+
+**Why separate from PR 2**:
+- PR 2 is the bug fix (correctness)
+- PR 3 is test quality (robustness)
+- Keeps PR 2 focused on the fix itself
