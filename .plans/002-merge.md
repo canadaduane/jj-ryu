@@ -1953,3 +1953,22 @@ When implementing, include these files in context:
 - **Reuse**: Leverage existing `execute_submission()` for post-merge PR updates
 - **Soft failures**: Re-submit failure doesn't fail the merge command
 - **`--confirm` flag**: Consistent with submit/sync commands
+
+---
+
+## Enhancement: MergeConfidence (Plan 003)
+
+**Implemented:** 2026-02-25
+
+The merge command was enhanced to handle GitHub's lazy `mergeable` computation. When GitHub returns `null` for merge status, the merge can still proceed with `MergeConfidence::Uncertain` instead of blocking.
+
+See `.plans/003-try-merge-step.md` for full details.
+
+**Key changes:**
+- `MergeReadiness.is_mergeable` changed from `bool` to `Option<bool>`
+- Added `uncertainties: Vec<String>` field for non-blocking unknowns
+- Added `MergeConfidence` enum (`Certain` / `Uncertain(reason)`)
+- Renamed `has_mergeable` → `has_actionable`
+- Added `was_uncertain` flag to `MergeExecutionResult` for contextual error messaging
+
+**Documentation:** See `src/merge/AGENTS.md`

@@ -600,12 +600,12 @@ fn test_merge_readiness_uncertainty() {
 }
 ```
 
-### Phase 6: Documentation 🔴
+### Phase 6: Documentation ✅
 
 **Tasks:**
 
-- 🔴 Create `src/merge/AGENTS.md` with MergeConfidence documentation
-- 🔴 Add note to `.plans/002-merge.md` about this enhancement
+- ✅ Create `src/merge/AGENTS.md` with MergeConfidence documentation
+- ✅ Add note to `.plans/002-merge.md` about this enhancement
 
 ## Tests Summary
 
