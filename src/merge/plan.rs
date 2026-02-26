@@ -58,6 +58,45 @@ pub enum MergeStep {
     },
 }
 
+impl MergeStep {
+    /// Get the bookmark name for this step
+    pub fn bookmark_name(&self) -> &str {
+        match self {
+            Self::Merge { bookmark, .. } | Self::Skip { bookmark, .. } => bookmark,
+        }
+    }
+}
+
+impl std::fmt::Display for MergeStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Merge {
+                pr_number,
+                pr_title,
+                confidence,
+                ..
+            } => {
+                let prefix = match confidence {
+                    MergeConfidence::Certain => "merge",
+                    MergeConfidence::Uncertain(_) => "merge (uncertain)",
+                };
+                write!(f, "{prefix} PR #{pr_number}: {pr_title}")
+            }
+            Self::Skip {
+                pr_number,
+                bookmark,
+                reasons,
+            } => {
+                write!(f, "skip PR #{pr_number} ({bookmark})")?;
+                if !reasons.is_empty() {
+                    write!(f, ": {}", reasons.join(", "))?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Options for merge planning
 #[derive(Debug, Clone, Default)]
 pub struct MergePlanOptions {

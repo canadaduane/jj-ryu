@@ -1,7 +1,7 @@
 # Plan: Retarget PRs During Stack Merge
 
 **Created:** 2026-02-26
-**Status:** 🔴 Not Started
+**Status:** 🟡 In Progress
 
 ## Background
 
@@ -169,9 +169,9 @@ Both modules call `platform.update_pr_base()`. The platform trait is the correct
 
 5. 🔴 Fix compilation errors in unit tests (add `trunk_branch` to manual `MergePlan` construction)
 
-6. 🔴 Add `bookmark_name(&self) -> &str` method to `MergeStep` (pattern consistency with `ExecutionStep`)
+6. ✅ Add `bookmark_name(&self) -> &str` method to `MergeStep` (pattern consistency with `ExecutionStep`)
 
-7. 🔴 Add `std::fmt::Display` impl for `MergeStep` (pattern consistency with `ExecutionStep`)
+7. ✅ Add `std::fmt::Display` impl for `MergeStep` (pattern consistency with `ExecutionStep`)
 
 ### Phase 2: Generate Retarget Steps in Planning 🔴
 
@@ -362,7 +362,7 @@ The key insight is that GitHub's merge API merges into the PR's *current* base, 
 
 ## PR Stack
 
-### PR 1: `refactor(merge): add Display and bookmark_name to MergeStep` 🔴
+### PR 1: `refactor(merge): add Display and bookmark_name to MergeStep` ✅
 
 **Type**: Mechanical refactor / prep
 
