@@ -1328,3 +1328,116 @@ mod merge_plan_test {
         assert_eq!(r.uncertainty(), Some("Reason 1")); // Returns first only
     }
 }
+
+mod merge_execution_test {
+    use crate::common::{github_config, MockPlatformService};
+    use jj_ryu::merge::{execute_merge, MergeConfidence, MergePlan, MergeStep};
+    use jj_ryu::submit::NoopProgress;
+    use jj_ryu::types::{MergeMethod, MergeResult};
+
+    #[tokio::test]
+    async fn test_merge_uncertain_pr_succeeds() {
+        // Setup: PR with uncertain merge status that will succeed
+        let mock = MockPlatformService::with_config(github_config());
+        mock.setup_uncertain_pr(1, "feat-a", "Feature A");
+
+        // Create a simple plan with one uncertain merge
+        let plan = MergePlan {
+            steps: vec![MergeStep::Merge {
+                bookmark: "feat-a".to_string(),
+                pr_number: 1,
+                pr_title: "Feature A".to_string(),
+                method: MergeMethod::Squash,
+                confidence: MergeConfidence::Uncertain(
+                    "Merge status unknown (GitHub still computing)".to_string(),
+                ),
+            }],
+            bookmarks_to_clear: vec!["feat-a".to_string()],
+            rebase_target: None,
+            has_actionable: true,
+        };
+
+        let progress = NoopProgress;
+        let result = execute_merge(&plan, &mock, &progress).await.unwrap();
+
+        // Verify: merge succeeded despite uncertainty
+        assert!(result.is_success());
+        assert_eq!(result.merged_bookmarks, vec!["feat-a"]);
+        assert!(!result.was_uncertain); // Only set on failure
+    }
+
+    #[tokio::test]
+    async fn test_merge_uncertain_pr_fails_sets_was_uncertain() {
+        let mock = MockPlatformService::with_config(github_config());
+        // Setup PR that will fail to merge
+        mock.setup_uncertain_pr(1, "feat-a", "Feature A");
+        mock.set_merge_response(
+            1,
+            MergeResult {
+                merged: false,
+                sha: None,
+                message: Some("Merge conflict".to_string()),
+            },
+        );
+
+        let plan = MergePlan {
+            steps: vec![MergeStep::Merge {
+                bookmark: "feat-a".to_string(),
+                pr_number: 1,
+                pr_title: "Feature A".to_string(),
+                method: MergeMethod::Squash,
+                confidence: MergeConfidence::Uncertain(
+                    "Merge status unknown".to_string(),
+                ),
+            }],
+            bookmarks_to_clear: vec!["feat-a".to_string()],
+            rebase_target: None,
+            has_actionable: true,
+        };
+
+        let progress = NoopProgress;
+        let result = execute_merge(&plan, &mock, &progress).await.unwrap();
+
+        // Verify: merge failed and was_uncertain is set
+        assert!(!result.is_success());
+        assert!(result.was_uncertain); // Key assertion
+        assert_eq!(result.failed_bookmark, Some("feat-a".to_string()));
+        assert_eq!(result.error_message, Some("Merge conflict".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_merge_certain_pr_fails_was_uncertain_false() {
+        let mock = MockPlatformService::with_config(github_config());
+        // Setup PR that will fail to merge but is certain (not uncertain)
+        mock.setup_mergeable_pr(1, "feat-a", "Feature A");
+        mock.set_merge_response(
+            1,
+            MergeResult {
+                merged: false,
+                sha: None,
+                message: Some("API error".to_string()),
+            },
+        );
+
+        let plan = MergePlan {
+            steps: vec![MergeStep::Merge {
+                bookmark: "feat-a".to_string(),
+                pr_number: 1,
+                pr_title: "Feature A".to_string(),
+                method: MergeMethod::Squash,
+                confidence: MergeConfidence::Certain, // Certain, not uncertain
+            }],
+            bookmarks_to_clear: vec!["feat-a".to_string()],
+            rebase_target: None,
+            has_actionable: true,
+        };
+
+        let progress = NoopProgress;
+        let result = execute_merge(&plan, &mock, &progress).await.unwrap();
+
+        // Verify: merge failed but was_uncertain is false
+        assert!(!result.is_success());
+        assert!(!result.was_uncertain); // Should be false for certain merges
+        assert_eq!(result.failed_bookmark, Some("feat-a".to_string()));
+    }
+}
