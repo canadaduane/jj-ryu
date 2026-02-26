@@ -507,7 +507,7 @@ impl PlatformService for GitHubService {
             .await
             .unwrap_or(true); // If we can't check, assume passing
 
-        // Build blocking reasons
+        // Build blocking reasons (definitive blockers)
         let mut blocking_reasons = Vec::new();
         if details.is_draft {
             blocking_reasons.push("PR is a draft".to_string());
@@ -521,21 +521,26 @@ impl PlatformService for GitHubService {
         if details.mergeable == Some(false) {
             blocking_reasons.push("Has merge conflicts".to_string());
         }
+
+        // Build uncertainties (unknown states, not definitive blockers)
+        let mut uncertainties = Vec::new();
         if details.mergeable.is_none() {
-            blocking_reasons.push("Merge status unknown (still computing)".to_string());
+            uncertainties.push("Merge status unknown (GitHub still computing)".to_string());
         }
 
         let readiness = MergeReadiness {
             is_approved,
             ci_passed,
-            is_mergeable: details.mergeable.unwrap_or(false),
+            is_mergeable: details.mergeable,
             is_draft: details.is_draft,
             blocking_reasons,
+            uncertainties,
         };
 
         debug!(
             pr_number,
-            can_merge = readiness.can_merge(),
+            is_blocked = readiness.is_blocked(),
+            has_uncertainty = readiness.uncertainty().is_some(),
             "checked merge readiness"
         );
         Ok(readiness)

@@ -144,16 +144,7 @@ pub fn create_merge_plan<S: BuildHasher>(
             continue;
         }
 
-        if info.readiness.can_merge() {
-            steps.push(MergeStep::Merge {
-                bookmark: bookmark_name.clone(),
-                pr_number: info.details.number,
-                pr_title: info.details.title.clone(),
-                method: MergeMethod::Squash,
-            });
-            bookmarks_to_clear.push(bookmark_name.clone());
-            // Continue to next PR (default: merge all consecutive mergeable)
-        } else {
+        if info.readiness.is_blocked() {
             steps.push(MergeStep::Skip {
                 bookmark: bookmark_name.clone(),
                 pr_number: info.details.number,
@@ -163,6 +154,15 @@ pub fn create_merge_plan<S: BuildHasher>(
             if rebase_target.is_none() {
                 rebase_target = Some(bookmark_name.clone());
             }
+        } else {
+            steps.push(MergeStep::Merge {
+                bookmark: bookmark_name.clone(),
+                pr_number: info.details.number,
+                pr_title: info.details.title.clone(),
+                method: MergeMethod::Squash,
+            });
+            bookmarks_to_clear.push(bookmark_name.clone());
+            // Continue to next PR (default: merge all consecutive mergeable)
         }
     }
 

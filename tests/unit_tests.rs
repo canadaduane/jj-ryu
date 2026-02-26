@@ -830,9 +830,10 @@ mod merge_plan_test {
             readiness: MergeReadiness {
                 is_approved: true,
                 ci_passed: true,
-                is_mergeable: true,
+                is_mergeable: Some(true),
                 is_draft: false,
                 blocking_reasons: vec![],
+                uncertainties: vec![],
             },
         }
     }
@@ -860,9 +861,10 @@ mod merge_plan_test {
             readiness: MergeReadiness {
                 is_approved: false,
                 ci_passed: true,
-                is_mergeable: true,
+                is_mergeable: Some(true),
                 is_draft: false,
                 blocking_reasons: reasons,
+                uncertainties: vec![],
             },
         }
     }
@@ -1137,7 +1139,7 @@ mod merge_plan_test {
 
         let mut pr_info = HashMap::new();
         let mut info = make_mergeable_pr_info("feat-a", 1, "Add feature A");
-        info.readiness.is_mergeable = false;
+        info.readiness.is_mergeable = Some(false);
         info.readiness.blocking_reasons = vec!["Has merge conflicts".to_string()];
         pr_info.insert("feat-a".to_string(), info);
 

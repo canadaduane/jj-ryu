@@ -449,7 +449,7 @@ impl PlatformService for GitLabService {
             Err(_) => true,
         };
 
-        // Build blocking reasons
+        // Build blocking reasons (definitive blockers)
         let mut blocking_reasons = Vec::new();
         if details.is_draft {
             blocking_reasons.push("MR is a draft".to_string());
@@ -464,17 +464,19 @@ impl PlatformService for GitLabService {
             blocking_reasons.push("Has merge conflicts".to_string());
         }
 
+        // GitLab always computes merge_status synchronously, so uncertainties is always empty
         let readiness = MergeReadiness {
             is_approved,
             ci_passed,
-            is_mergeable: details.mergeable.unwrap_or(false),
+            is_mergeable: details.mergeable,
             is_draft: details.is_draft,
             blocking_reasons,
+            uncertainties: vec![],
         };
 
         debug!(
             mr_iid = pr_number,
-            can_merge = readiness.can_merge(),
+            is_blocked = readiness.is_blocked(),
             "checked merge readiness"
         );
         Ok(readiness)

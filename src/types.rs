@@ -217,17 +217,41 @@ pub struct MergeReadiness {
     /// Whether CI checks have passed
     pub ci_passed: bool,
     /// Whether the PR can be merged (no conflicts)
-    pub is_mergeable: bool,
+    /// - `Some(true)` = mergeable
+    /// - `Some(false)` = has conflicts
+    /// - `None` = unknown (GitHub still computing)
+    pub is_mergeable: Option<bool>,
     /// Whether the PR is a draft
     pub is_draft: bool,
-    /// Human-readable reasons why the PR cannot be merged
+    /// Human-readable reasons why the PR cannot be merged (definitive blockers)
     pub blocking_reasons: Vec<String>,
+    /// Reasons why merge status is uncertain (unknown states, not definitive blockers)
+    pub uncertainties: Vec<String>,
 }
 
 impl MergeReadiness {
-    /// Check if all conditions are met for merging
-    pub const fn can_merge(&self) -> bool {
-        self.is_approved && self.ci_passed && self.is_mergeable && !self.is_draft
+    /// Check if there are definitive blockers preventing merge.
+    ///
+    /// Returns `true` if the PR definitely cannot be merged:
+    /// - Not approved
+    /// - CI failing
+    /// - Is a draft
+    /// - Has confirmed merge conflicts (`is_mergeable == Some(false)`)
+    ///
+    /// Returns `false` if the PR might be mergeable (including unknown status).
+    pub const fn is_blocked(&self) -> bool {
+        !self.is_approved
+            || !self.ci_passed
+            || self.is_draft
+            || matches!(self.is_mergeable, Some(false))
+    }
+
+    /// Returns the first uncertainty reason, if any.
+    ///
+    /// Use this to check if the merge attempt has unknown factors
+    /// (e.g., GitHub hasn't computed mergeable status yet).
+    pub fn uncertainty(&self) -> Option<&str> {
+        self.uncertainties.first().map(String::as_str)
     }
 }
 

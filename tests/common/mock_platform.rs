@@ -209,9 +209,10 @@ impl MockPlatformService {
             MergeReadiness {
                 is_approved: true,
                 ci_passed: true,
-                is_mergeable: true,
+                is_mergeable: Some(true),
                 is_draft: false,
                 blocking_reasons: vec![],
+                uncertainties: vec![],
             },
         );
 
@@ -264,9 +265,10 @@ impl MockPlatformService {
             MergeReadiness {
                 is_approved: false,
                 ci_passed: true,
-                is_mergeable: true,
+                is_mergeable: Some(true),
                 is_draft: false,
                 blocking_reasons: reasons,
+                uncertainties: vec![],
             },
         );
     }
