@@ -359,7 +359,7 @@ MergeStep::Merge { bookmark, pr_number, pr_title, method, confidence } => {
 }
 ```
 
-### Phase 4: Update Execution and Display 🔴
+### Phase 4: Update Execution and Display ✅
 
 *Note: Some tasks moved here from Phase 3 were completed early. Remaining work focuses on display updates and contextual error handling.*
 
@@ -367,10 +367,10 @@ MergeStep::Merge { bookmark, pr_number, pr_title, method, confidence } => {
 
 - ✅ ~~Update `execute_merge()` match arm to destructure `confidence`~~ (done in Phase 3)
 - ✅ ~~Update `src/cli/merge.rs` to use `plan.has_actionable` instead of `plan.has_mergeable`~~ (done in Phase 3)
-- 🔴 Update `report_merge_dry_run()` to display confidence level using correct styling methods
-- 🔴 Add `was_uncertain: bool` field to `MergeExecutionResult`
-- 🔴 Set `was_uncertain` when merge fails and confidence was `Uncertain`
-- 🔴 Add contextual error messaging when uncertain merge fails
+- ✅ Update `report_merge_dry_run()` to display confidence level using correct styling methods
+- ✅ Add `was_uncertain: bool` field to `MergeExecutionResult`
+- ✅ Set `was_uncertain` when merge fails and confidence was `Uncertain`
+- ✅ Add contextual error messaging when uncertain merge fails
 
 **Display Format:**
 

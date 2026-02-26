@@ -9,8 +9,8 @@ use indicatif::ProgressBar;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::merge::{
-    create_merge_plan, execute_merge, MergeExecutionResult, MergePlan, MergePlanOptions,
-    MergeStep, PrInfo,
+    create_merge_plan, execute_merge, MergeConfidence, MergeExecutionResult, MergePlan,
+    MergePlanOptions, MergeStep, PrInfo,
 };
 use jj_ryu::submit::{analyze_submission, create_submission_plan, execute_submission};
 use jj_ryu::tracking::{save_pr_cache, save_tracking};
@@ -325,15 +325,18 @@ fn print_merge_summary(merge_result: &MergeExecutionResult) {
     }
 
     if let Some(ref failed) = merge_result.failed_bookmark {
-        println!(
-            "   Failed: {} ({})",
-            failed.warn(),
-            merge_result
-                .error_message
-                .as_deref()
-                .unwrap_or("unknown error")
-                .muted()
-        );
+        if merge_result.was_uncertain {
+            println!(
+                "   {} {} (merge status was uncertain)",
+                "Failed:".warn(),
+                failed.warn()
+            );
+        } else {
+            println!("   {} {}", "Failed:".warn(), failed.warn());
+        }
+        if let Some(ref msg) = merge_result.error_message {
+            println!("          {}", msg.muted());
+        }
     }
 }
 
@@ -354,14 +357,28 @@ fn report_merge_dry_run(plan: &MergePlan) {
                 bookmark,
                 pr_number,
                 pr_title,
+                confidence,
                 ..
             } => {
-                println!(
-                    "  {} PR #{}: {}",
-                    "✓ Would merge".success(),
-                    pr_number,
-                    pr_title
-                );
+                match confidence {
+                    MergeConfidence::Certain => {
+                        println!(
+                            "  {} PR #{}: {}",
+                            "✓ Would merge".success(),
+                            pr_number,
+                            pr_title
+                        );
+                    }
+                    MergeConfidence::Uncertain(reason) => {
+                        println!(
+                            "  {} PR #{}: {}",
+                            "? Would attempt".warn(),
+                            pr_number,
+                            pr_title
+                        );
+                        println!("    ⚠ {}", reason.muted());
+                    }
+                }
                 println!("    Bookmark: {}", bookmark.accent());
             }
             MergeStep::Skip {

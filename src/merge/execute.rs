@@ -5,7 +5,7 @@
 //! executes the merge operations via the platform API.
 
 use crate::error::Result;
-use crate::merge::plan::{MergePlan, MergeStep};
+use crate::merge::plan::{MergeConfidence, MergePlan, MergeStep};
 use crate::platform::PlatformService;
 use crate::submit::ProgressCallback;
 
@@ -18,6 +18,8 @@ pub struct MergeExecutionResult {
     pub failed_bookmark: Option<String>,
     /// Error message from failed merge (if any)
     pub error_message: Option<String>,
+    /// Whether the failed merge had uncertain confidence (for contextual error messaging)
+    pub was_uncertain: bool,
 }
 
 impl MergeExecutionResult {
@@ -70,7 +72,7 @@ pub async fn execute_merge(
                 pr_number,
                 pr_title,
                 method,
-                confidence: _, // Confidence doesn't affect execution - we attempt the merge regardless
+                confidence,
             } => {
                 progress
                     .on_message(&format!("🔀 Merging PR #{pr_number}: {pr_title}"))
@@ -88,11 +90,15 @@ pub async fn execute_merge(
                         // Merge API returned but didn't merge
                         result.failed_bookmark = Some(bookmark.clone());
                         result.error_message = merge_result.message;
+                        result.was_uncertain =
+                            matches!(confidence, MergeConfidence::Uncertain(_));
                         break;
                     }
                     Err(e) => {
                         result.failed_bookmark = Some(bookmark.clone());
                         result.error_message = Some(e.to_string());
+                        result.was_uncertain =
+                            matches!(confidence, MergeConfidence::Uncertain(_));
                         break;
                     }
                 }
