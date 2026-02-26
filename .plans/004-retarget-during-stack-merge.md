@@ -456,25 +456,25 @@ During trenchant review of the completed implementation, several issues were ide
 - **L8**: Test helpers that create "convenient" default values can mask bugs. Explicit base refs are necessary to test retarget logic.
 - **L9**: When adding a new enum variant, audit existing match arms to ensure they're not handling impossible cases.
 
-### Phase 7: Test and Code Quality Cleanup 🔴
+### Phase 7: Test and Code Quality Cleanup ✅
 
 **Goal**: Strengthen test coverage and remove dead code.
 
 #### Tasks
 
-1. 🔴 Update `test_create_merge_plan_multiple_consecutive_mergeable` to use realistic base refs:
+1. ✅ Update `test_create_merge_plan_multiple_consecutive_mergeable` to use realistic base refs:
    - PR1 targets `main`, PR2 targets `feat-a`, PR3 targets `feat-b`
    - Assert 5 steps: Merge, Retarget, Merge, Retarget, Merge
    - This ensures the test exercises the actual retarget logic
 
-2. 🔴 Add comment to `make_mergeable_pr_info` explaining it creates "flat" PRs (all targeting main):
+2. ✅ Add comment to `make_mergeable_pr_info` explaining it creates "flat" PRs (all targeting main):
    ```rust
    /// Helper to create a mergeable PrInfo.
    /// NOTE: Sets base_ref to "main" for all PRs. For realistic stacked PR scenarios
    /// where PRs target their parent's branch, use `make_mergeable_pr_info_with_base`.
    ```
 
-3. 🔴 Remove dead `RetargetBase` case from second-pass match arm in `create_merge_plan()`:
+3. ✅ Remove dead `RetargetBase` case from second-pass match arm in `create_merge_plan()`:
    ```rust
    // Change from:
    MergeStep::Skip { .. } | MergeStep::RetargetBase { .. } => { ... }
@@ -482,7 +482,7 @@ During trenchant review of the completed implementation, several issues were ide
    MergeStep::Skip { .. } => { ... }
    ```
 
-4. 🔴 Add comment explaining the two-pass algorithm in `create_merge_plan()`:
+4. ✅ Add comment explaining the two-pass algorithm in `create_merge_plan()`:
    ```rust
    // Two-pass algorithm:
    // Pass 1: Collect all Merge/Skip steps and track indices of mergeable PRs
@@ -503,7 +503,7 @@ During trenchant review of the completed implementation, several issues were ide
 
 This amendment adds **PR 3** to the stack:
 
-### PR 3: `test(merge): strengthen retarget test coverage` 🔴
+### PR 3: `test(merge): strengthen retarget test coverage` ✅
 
 **Type**: Test improvement / cleanup
 

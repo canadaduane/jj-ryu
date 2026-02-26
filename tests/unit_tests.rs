@@ -812,7 +812,11 @@ mod merge_plan_test {
     use jj_ryu::types::{MergeMethod, MergeReadiness, PrState, PullRequestDetails};
     use std::collections::HashMap;
 
-    /// Helper to create a mergeable PrInfo
+    /// Helper to create a mergeable PrInfo with base_ref set to "main".
+    ///
+    /// NOTE: This creates a "flat" PR where all PRs target main directly.
+    /// For realistic stacked PR scenarios where PRs target their parent's branch,
+    /// use `make_mergeable_pr_info_with_base` instead.
     fn make_mergeable_pr_info(bookmark: &str, pr_number: u64, title: &str) -> PrInfo {
         PrInfo {
             bookmark: bookmark.to_string(),
@@ -936,21 +940,26 @@ mod merge_plan_test {
 
     #[test]
     fn test_create_merge_plan_multiple_consecutive_mergeable() {
+        // Test with realistic stacked PR base refs:
+        // PR1 targets main, PR2 targets feat-a, PR3 targets feat-b
         let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
         let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
 
         let mut pr_info = HashMap::new();
+        // PR1 targets main (correct for first PR in stack)
         pr_info.insert(
             "feat-a".to_string(),
-            make_mergeable_pr_info("feat-a", 1, "Add feature A"),
+            make_mergeable_pr_info_with_base("feat-a", 1, "Add feature A", "main"),
         );
+        // PR2 targets feat-a (will need retarget after PR1 merges)
         pr_info.insert(
             "feat-b".to_string(),
-            make_mergeable_pr_info("feat-b", 2, "Add feature B"),
+            make_mergeable_pr_info_with_base("feat-b", 2, "Add feature B", "feat-a"),
         );
+        // PR3 targets feat-b (will need retarget after PR2 merges)
         pr_info.insert(
             "feat-c".to_string(),
-            make_mergeable_pr_info("feat-c", 3, "Add feature C"),
+            make_mergeable_pr_info_with_base("feat-c", 3, "Add feature C", "feat-b"),
         );
 
         let plan = create_merge_plan(&analysis, &pr_info, &MergePlanOptions::default(), "main");
@@ -963,10 +972,13 @@ mod merge_plan_test {
         );
         assert!(plan.rebase_target.is_none());
 
-        // All should be Merge steps
-        for step in &plan.steps {
-            assert!(matches!(step, MergeStep::Merge { .. }));
-        }
+        // Should have 5 steps: Merge, Retarget, Merge, Retarget, Merge
+        assert_eq!(plan.steps.len(), 5);
+        assert!(matches!(&plan.steps[0], MergeStep::Merge { pr_number: 1, .. }));
+        assert!(matches!(&plan.steps[1], MergeStep::RetargetBase { pr_number: 2, new_base, .. } if new_base == "main"));
+        assert!(matches!(&plan.steps[2], MergeStep::Merge { pr_number: 2, .. }));
+        assert!(matches!(&plan.steps[3], MergeStep::RetargetBase { pr_number: 3, new_base, .. } if new_base == "main"));
+        assert!(matches!(&plan.steps[4], MergeStep::Merge { pr_number: 3, .. }));
     }
 
     #[test]

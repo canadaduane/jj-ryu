@@ -189,13 +189,21 @@ pub fn create_merge_plan<S: BuildHasher>(
     options: &MergePlanOptions,
     trunk_branch: &str,
 ) -> MergePlan {
+    // Two-pass algorithm:
+    // Pass 1: Collect all Merge/Skip steps and track indices of mergeable PRs
+    // Pass 2: Interleave RetargetBase steps between consecutive Merge steps
+    //
+    // This is necessary because we need lookahead to know if there's a "next"
+    // mergeable PR that requires retargeting. A single-pass approach would
+    // require complex state management or iterator peeking.
+
     let mut steps = Vec::new();
     let mut bookmarks_to_clear = Vec::new();
     let mut rebase_target = None;
     let mut hit_blocker = false;
     let mut hit_target = false;
 
-    // Collect mergeable bookmarks first (we need lookahead for retarget steps)
+    // Track indices of mergeable PRs for lookahead during retarget step insertion
     let mut mergeable_indices: Vec<usize> = Vec::new();
 
     // Process in stack order (trunk → leaf)
@@ -292,9 +300,11 @@ pub fn create_merge_plan<S: BuildHasher>(
                     }
                 }
             }
-            MergeStep::Skip { .. } | MergeStep::RetargetBase { .. } => {
+            MergeStep::Skip { .. } => {
                 final_steps.push(step);
             }
+            // RetargetBase steps are only created in this pass, never in pass 1
+            MergeStep::RetargetBase { .. } => unreachable!("RetargetBase not in initial steps"),
         }
     }
 
